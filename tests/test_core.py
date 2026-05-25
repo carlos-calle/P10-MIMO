@@ -150,15 +150,19 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertLess(result["ber"], 1e-3)
         self.assertEqual(result["total_bits"], manager.img_size * manager.img_size * 8)
         self.assertEqual(result["num_symbols"], result["total_bits"] // 4)
+        self.assertEqual(result["ofdm_blocks"], 250)
         self.assertNotIn("Modo:", result["info"])
         self.assertIn("Bits:", result["info"])
         self.assertIn("Símbolos:", result["info"])
+        self.assertIn("Bloques OFDM: 250", result["info"])
         self.assertIn("SC activas: 600", result["info"])
 
     def test_transmission_symbol_count_depends_on_modulation(self):
         manager = OFDMSimulationManager()
         manager.img_size = 16
         bits_per_symbol = {1: 2, 2: 4, 3: 6}
+        _, nc, _, _ = utils.get_ofdm_params(4, 1)
+        data_subcarriers = int(np.sum(~ofdm_ops.pilot_subcarrier_mask(nc)))
 
         for mod_type, n_bits in bits_per_symbol.items():
             result = manager.run_image_transmission(
@@ -171,17 +175,28 @@ class CoreSimulationTests(unittest.TestCase):
                 rng_seed=manager.mc_seed,
             )
             expected_symbols = int(np.ceil(result["total_bits"] / n_bits))
+            expected_blocks = int(np.ceil(expected_symbols / data_subcarriers))
             self.assertTrue(result["success"])
             self.assertEqual(result["num_symbols"], expected_symbols)
+            self.assertEqual(result["ofdm_blocks"], expected_blocks)
 
     def test_analysis_curves_return_expected_series(self):
         manager = OFDMSimulationManager()
         manager.img_size = 32
         manager.mc_min_runs = 2
         manager.mc_max_runs = 3
+        expected_blocks = {"QPSK": 9, "16-QAM": 5, "64-QAM": 3}
 
         ber = manager.calculate_ber_curve("imagenes/cameraman.jpg", 4, 1, num_paths=1)
         self.assertEqual([item["label"] for item in ber["series"]], ["QPSK", "16-QAM", "64-QAM"])
+        self.assertGreaterEqual(ber["run_min"], manager.mc_min_runs)
+        self.assertLessEqual(ber["run_max"], manager.mc_max_runs)
+        self.assertEqual(ber["blocks_by_modulation"], expected_blocks)
+        self.assertIn("corridas/punto", ber["summary"])
+        self.assertIn("bloques/corrida QPSK=9, 16-QAM=5, 64-QAM=3", ber["summary"])
+        self.assertIn("BW: 10 MHz (600 SC)", ber["summary"])
+        self.assertIn("CP: Normal", ber["summary"])
+        self.assertIn("Canal: ITU Pedestrian A, caminos: 1", ber["summary"])
         for item in ber["series"]:
             self.assertEqual(len(ber["x"]), len(item["y"]))
             self.assertEqual(len(item["y"]), len(item["ci_lower"]))
@@ -192,6 +207,10 @@ class CoreSimulationTests(unittest.TestCase):
 
         papr = manager.calculate_papr_distribution("imagenes/cameraman.jpg", 4, 1)
         self.assertEqual([item["label"] for item in papr["series"]], ["QPSK", "16-QAM", "64-QAM"])
+        self.assertEqual(papr["blocks_by_modulation"], expected_blocks)
+        self.assertIn("bloques OFDM QPSK=9, 16-QAM=5, 64-QAM=3", papr["summary"])
+        self.assertIn("BW: 10 MHz (600 SC)", papr["summary"])
+        self.assertIn("CP/canal: no aplican", papr["summary"])
         for item in papr["series"]:
             self.assertEqual(len(papr["x"]), len(item["y"]))
             self.assertGreater(item["total_blocks"], 0)

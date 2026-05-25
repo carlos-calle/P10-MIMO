@@ -625,12 +625,15 @@ self.lbl_status.configure(text=result["info"], text_color="#30D760")
 El texto de estado resume:
 
 ```text
-BER | bits totales de la imagen | simbolos modulados | subportadoras activas
+BER | bits totales de la imagen | simbolos modulados | bloques OFDM | subportadoras activas
 ```
 
 Los bits corresponden a la imagen ya redimensionada. Los simbolos dependen de
 la modulacion seleccionada: QPSK usa 2 bits por simbolo, 16-QAM usa 4 y 64-QAM
-usa 6, con padding al final si hiciera falta.
+usa 6, con padding al final si hiciera falta. Los bloques OFDM indican cuantas
+IFFT/bloques temporales fueron necesarios para transportar esos simbolos tras
+reservar las subportadoras piloto. Por eso cambian con la modulacion, con el
+ancho de banda y con la cantidad de subportadoras activas.
 
 ## 20. Resumen corto de la cadena
 
@@ -674,6 +677,12 @@ controller/simulation_mgr.py::calculate_ber_curve
 controller/simulation_mgr.py::_calculate_ber_series
 ```
 
+La curva BER usa la imagen cargada como carga util y se calcula para QPSK,
+16-QAM y 64-QAM. En la interfaz se reportan las corridas Monte Carlo usadas por
+punto, los bloques OFDM por corrida de cada modulacion, el ancho de banda, las
+subportadoras activas, el prefijo ciclico, el perfil `ITU Pedestrian A` y el
+numero de caminos multipath seleccionados.
+
 Curva PAPR:
 
 ```text
@@ -681,6 +690,12 @@ ui/main_window.py::action_plot_papr
 controller/simulation_mgr.py::calculate_papr_distribution
 controller/simulation_mgr.py::_calculate_papr_values
 ```
+
+La curva PAPR no usa Monte Carlo. Evalua los bloques OFDM que salen de la
+imagen cargada para las tres modulaciones. Como el PAPR se mide antes del
+prefijo ciclico y antes del canal, el resumen solo reporta ancho de banda,
+subportadoras activas, bloques evaluados, sobremuestreo `L=4` y
+`CP/canal: no aplican`.
 
 Funciones OFDM principales:
 

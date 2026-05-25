@@ -353,6 +353,7 @@ class MainWindow(ctk.CTk):
             "SNR (dB)",
             "Bit Error Rate (BER)",
             log_y=True,
+            footer_text=result["summary"],
         )
         self.lbl_status.configure(text=result["summary"], text_color="white")
         self.tabview.set("Análisis BER")
@@ -383,11 +384,12 @@ class MainWindow(ctk.CTk):
             "Umbral de Potencia (dB)",
             "Probabilidad (PAPR > Umbral)",
             log_y=True,
+            footer_text=result["summary"],
         )
         self.lbl_status.configure(text=result["summary"], text_color="white")
         self.tabview.set("Análisis PAPR")
 
-    def embed_multi_plot(self, parent_frame, x_data, series, title, xlabel, ylabel, log_y=False):
+    def embed_multi_plot(self, parent_frame, x_data, series, title, xlabel, ylabel, log_y=False, footer_text=None):
         """Incrusta multiples curvas con bandas de confianza."""
         for widget in parent_frame.winfo_children():
             widget.destroy()
@@ -443,3 +445,14 @@ class MainWindow(ctk.CTk):
         canvas = FigureCanvasTkAgg(fig, master=parent_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+        if footer_text:
+            footer = ctk.CTkLabel(
+                parent_frame,
+                text=footer_text,
+                text_color="#D7E2F0",
+                justify="left",
+                wraplength=760,
+                font=ctk.CTkFont(family="Courier", size=11),
+            )
+            footer.pack(fill="x", padx=14, pady=(0, 10))

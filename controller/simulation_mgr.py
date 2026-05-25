@@ -48,6 +48,37 @@ class OFDMSimulationManager:
         self.mc_seed = 2024
         self.papr_oversampling = 4
 
+    def _selected_config_summary(self, bw_idx, profile_idx, num_paths=None):
+        _, nc, _, _ = utils.get_ofdm_params(bw_idx, profile_idx)
+        bw_name = config.LTE_BANDWIDTHS[bw_idx]["name"]
+        cp_name = config.LTE_PROFILES[profile_idx]["name"]
+        parts = [f"BW: {bw_name} ({nc} SC)", f"CP: {cp_name}"]
+        if num_paths is not None:
+            parts.append(f"Canal: {channel.DEFAULT_RAYLEIGH_PROFILE}, caminos: {num_paths}")
+        return " | ".join(parts)
+
+    def _ofdm_block_count(self, total_bits, bw_idx, profile_idx, mod_type):
+        _, nc, _, _ = utils.get_ofdm_params(bw_idx, profile_idx)
+        data_subcarriers = int(np.sum(~ofdm_ops.pilot_subcarrier_mask(nc)))
+        num_symbols = int(np.ceil(total_bits / config.MODULATION_BITS[mod_type]))
+        return int(np.ceil(num_symbols / data_subcarriers)) if data_subcarriers else 0
+
+    def _blocks_by_modulation(self, total_bits, bw_idx, profile_idx):
+        return {
+            config.MODULATION_NAMES[mod_type]: self._ofdm_block_count(
+                total_bits,
+                bw_idx,
+                profile_idx,
+                mod_type,
+            )
+            for mod_type in (1, 2, 3)
+        }
+
+    def _format_blocks_by_modulation(self, blocks_by_modulation):
+        return ", ".join(
+            f"{label}={blocks}" for label, blocks in blocks_by_modulation.items()
+        )
+
     def run_image_transmission(
         self,
         image_path,
@@ -105,8 +136,9 @@ class OFDMSimulationManager:
                 "snr": snr_db,
                 "total_bits": total_bits,
                 "num_symbols": num_symbols,
+                "ofdm_blocks": num_blocks,
                 "channel_report": channel_report,
-                "info": f"BER: {ber:.5f} | Bits: {total_bits} | Símbolos: {num_symbols} | SC activas: {nc}"
+                "info": f"BER: {ber:.5f} | Bits: {total_bits} | Símbolos: {num_symbols} | Bloques OFDM: {num_blocks} | SC activas: {nc}"
             }
 
         except Exception as exc:
@@ -221,12 +253,21 @@ class OFDMSimulationManager:
             for current_mod in (1, 2, 3)
         ]
 
-        max_runs = max(int(np.max(item["runs"])) for item in series)
+        all_runs = np.concatenate([item["runs"] for item in series])
+        min_runs = int(np.min(all_runs))
+        max_runs = int(np.max(all_runs))
+        config_summary = self._selected_config_summary(bw_idx, profile_idx, num_paths)
+        blocks_by_modulation = self._blocks_by_modulation(len(tx_bits_raw), bw_idx, profile_idx)
+        block_summary = self._format_blocks_by_modulation(blocks_by_modulation)
         return {
             "x": snr_range,
             "series": series,
             "confidence": 0.95,
-            "summary": f"BER Monte Carlo: 3 modulaciones, hasta {max_runs} corridas, IC 95%",
+            "run_min": min_runs,
+            "run_max": max_runs,
+            "blocks_by_modulation": blocks_by_modulation,
+            "config_summary": config_summary,
+            "summary": f"BER Monte Carlo: 3 modulaciones, corridas/punto {min_runs}-{max_runs}, bloques/corrida {block_summary}, IC 95% | {config_summary}",
         }
 
     def _calculate_papr_values(self, symbols, n_fft, nc):
@@ -299,9 +340,16 @@ class OFDMSimulationManager:
             exceed_counts = np.sum(papr_values[:, None] > thresholds[None, :], axis=0)
             item["y"] = exceed_counts / len(papr_values)
 
+        _, nc, _, _ = utils.get_ofdm_params(bw_idx, profile_idx)
+        bw_name = config.LTE_BANDWIDTHS[bw_idx]["name"]
+        config_summary = f"BW: {bw_name} ({nc} SC) | CP/canal: no aplican"
+        blocks_by_modulation = {item["label"]: item["total_blocks"] for item in series}
+        block_summary = self._format_blocks_by_modulation(blocks_by_modulation)
         return {
             "x": thresholds,
             "series": series,
             "oversampling": self.papr_oversampling,
-            "summary": f"PAPR empirico: 3 modulaciones, L={self.papr_oversampling}",
+            "blocks_by_modulation": blocks_by_modulation,
+            "config_summary": config_summary,
+            "summary": f"PAPR empirico: 3 modulaciones, L={self.papr_oversampling}, bloques OFDM {block_summary} | {config_summary}",
         }

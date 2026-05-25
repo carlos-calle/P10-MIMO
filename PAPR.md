@@ -147,6 +147,14 @@ significa que aproximadamente el 25% de los bloques OFDM tuvieron PAPR mayor que
 
 La grafica actual no muestra banda de confianza para PAPR porque ya no se ejecuta Monte Carlo.
 
+El resumen mostrado debajo de la grafica indica:
+
+- el ancho de banda seleccionado y sus subportadoras activas;
+- el numero de bloques OFDM evaluados para QPSK, 16-QAM y 64-QAM;
+- el factor de sobremuestreo `L=4`;
+- `CP/canal: no aplican`, porque el calculo ocurre antes de insertar prefijo
+  ciclico y antes de pasar por el canal Rayleigh.
+
 ## Limitaciones
 
 - Es una estimacion discreta de PAPR, aunque mejorada con sobremuestreo.

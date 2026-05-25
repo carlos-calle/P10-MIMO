@@ -60,7 +60,7 @@ Al abrir la aplicacion:
 5. Elige una imagen desde el boton "Seleccionar Imagen...".
 6. Usa "TRANSMITIR IMAGEN", "GENERAR CURVA BER" o "ANALIZAR PAPR".
 
-La transmision de imagen muestra BER, bits totales de la imagen, simbolos modulados y subportadoras activas. La curva BER siempre compara QPSK, 16-QAM y 64-QAM, sin depender de la modulacion seleccionada en la interfaz. La curva BER muestra el punto estimado y una banda sombreada con el intervalo de confianza al 95%. La curva PAPR tambien compara las tres modulaciones, pero es una CCDF empirica sin Monte Carlo.
+La transmision de imagen muestra BER, bits totales de la imagen, simbolos modulados, bloques OFDM requeridos y subportadoras activas. La curva BER siempre compara QPSK, 16-QAM y 64-QAM, sin depender de la modulacion seleccionada en la interfaz. La curva BER muestra el punto estimado, una banda sombreada con intervalo de confianza al 95%, las corridas Monte Carlo usadas por punto y la configuracion fisica usada. La curva PAPR tambien compara las tres modulaciones, pero es una CCDF empirica sin Monte Carlo; su resumen indica los bloques OFDM evaluados y aclara que CP/canal no aplican al calculo.
 
 ## Estructura Del Proyecto
 
@@ -112,11 +112,11 @@ La cadena principal esta en `controller/simulation_mgr.py`.
 15. Se revierte el scrambling.
 16. Se calcula BER y se reconstruye la imagen recibida.
 
-Para la curva BER Monte Carlo no se generan bits aleatorios como carga util. Cada corrida parte de la misma imagen cargada y repite la transmision completa con nuevas realizaciones de ruido/canal y scrambling de la imagen para QPSK, 16-QAM y 64-QAM. En PAPR no se usa Monte Carlo: se calcula una CCDF empirica por modulacion sobre los bloques OFDM generados desde la imagen cargada.
+Para la curva BER Monte Carlo no se generan bits aleatorios como carga util. Cada corrida parte de la misma imagen cargada y repite la transmision completa con nuevas realizaciones de ruido/canal y scrambling de la imagen para QPSK, 16-QAM y 64-QAM. El resumen de BER muestra cuantas corridas por punto fueron necesarias, el ancho de banda, subportadoras activas, CP, perfil ITU Pedestrian A, caminos multipath y bloques OFDM por corrida para cada modulacion. En PAPR no se usa Monte Carlo: se calcula una CCDF empirica por modulacion sobre los bloques OFDM generados desde la imagen cargada. Como PAPR se mide antes del CP y antes del canal, el resumen solo reporta ancho de banda, subportadoras activas, bloques evaluados y `CP/canal: no aplican`.
 
 La transmision manual de imagen usa una nueva realizacion aleatoria de canal y ruido cada vez que se pulsa el boton. Para pruebas automatizadas, `run_image_transmission` acepta `rng_seed`, lo que permite fijar la realizacion y obtener resultados reproducibles.
 
-El numero de simbolos mostrado depende de la modulacion: QPSK agrupa 2 bits por simbolo, 16-QAM agrupa 4 y 64-QAM agrupa 6. Si la cantidad de bits no calza exactamente, el modulador agrega padding al final antes de generar los simbolos.
+El numero de simbolos mostrado depende de la modulacion: QPSK agrupa 2 bits por simbolo, 16-QAM agrupa 4 y 64-QAM agrupa 6. Si la cantidad de bits no calza exactamente, el modulador agrega padding al final antes de generar los simbolos. El numero de bloques OFDM indica cuantas IFFT/bloques temporales fueron necesarios para transportar esos simbolos despues de reservar las subportadoras piloto.
 
 ## Parametros LTE Implementados
 

@@ -45,11 +45,15 @@ PAPR empirico.
   atenuaciones del canal afectan la SNR recibida.
 - La transmision manual genera una nueva realizacion de canal y ruido por click.
 - El resumen de transmision muestra BER, bits totales de la imagen, simbolos
-  modulados y subportadoras activas.
+  modulados, bloques OFDM requeridos y subportadoras activas.
 - La curva BER usa la imagen cargada como carga util y compara QPSK, 16-QAM y
   64-QAM simultaneamente.
-- La BER incluye intervalo de confianza al 95%.
+- La BER incluye intervalo de confianza al 95%, corridas Monte Carlo por punto
+  y la configuracion fisica usada: ancho de banda, subportadoras activas,
+  prefijo ciclico, perfil ITU Pedestrian A y caminos multipath.
 - La curva PAPR compara las tres modulaciones y usa sobremuestreo `L=4`.
+- El resumen de PAPR reporta ancho de banda, subportadoras activas y bloques
+  OFDM evaluados; CP/canal no aplican porque se mide antes de ambos.
 - Las simulaciones pesadas corren en un worker thread para que la interfaz no
   se bloquee mientras calcula.
 
