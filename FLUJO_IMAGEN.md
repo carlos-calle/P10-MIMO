@@ -622,17 +622,6 @@ self.lbl_rx_img.configure(image=self.tk_img_rx, text="")
 self.lbl_status.configure(text=result["info"], text_color="#30D760")
 ```
 
-La misma transmision tambien actualiza dos pestanas de senal:
-
-```python
-self.embed_signal_plot(self.tab_time, result["time_plot"])
-self.embed_signal_plot(self.tab_freq, result["frequency_plot"])
-```
-
-`time_plot` muestra la magnitud de la senal OFDM transmitida y recibida en las
-primeras muestras de la corrida. `frequency_plot` muestra el espectro
-normalizado en dB, calculado con FFT sobre un segmento de la senal.
-
 ## 20. Resumen corto de la cadena
 
 ```text
@@ -654,7 +643,6 @@ Imagen
   -> descrambling
   -> BER
   -> reconstruccion de imagen
-  -> graficas de tiempo y frecuencia
 ```
 
 ## 21. Donde se calcula cada analisis
@@ -682,14 +670,6 @@ Curva PAPR:
 ui/main_window.py::action_plot_papr
 controller/simulation_mgr.py::calculate_papr_distribution
 controller/simulation_mgr.py::_calculate_papr_values
-```
-
-Graficas de tiempo y frecuencia:
-
-```text
-controller/simulation_mgr.py::_build_time_plot
-controller/simulation_mgr.py::_build_frequency_plot
-ui/main_window.py::embed_signal_plot
 ```
 
 Funciones OFDM principales:

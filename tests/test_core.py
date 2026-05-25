@@ -148,11 +148,6 @@ class CoreSimulationTests(unittest.TestCase):
         )
         self.assertTrue(result["success"])
         self.assertLess(result["ber"], 1e-3)
-        self.assertEqual(len(result["time_plot"]["series"]), 2)
-        self.assertEqual(len(result["frequency_plot"]["series"]), 2)
-        self.assertGreater(len(result["time_plot"]["x"]), 0)
-        self.assertGreater(len(result["frequency_plot"]["x"]), 0)
-        self.assertLessEqual(len(result["frequency_plot"]["x"]), manager.spectrum_plot_points)
 
     def test_analysis_curves_return_expected_series(self):
         manager = OFDMSimulationManager()

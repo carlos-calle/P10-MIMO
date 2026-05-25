@@ -47,61 +47,6 @@ class OFDMSimulationManager:
         self.mc_rel_ci_target = 0.25
         self.mc_seed = 2024
         self.papr_oversampling = 4
-        self.time_plot_samples = 2500
-        self.spectrum_segment_samples = 65_536
-        self.spectrum_plot_points = 4096
-
-    def _decimate_plot(self, x_values, y_values, max_points):
-        if len(x_values) <= max_points:
-            return x_values, y_values
-
-        indices = np.linspace(0, len(x_values) - 1, max_points, dtype=int)
-        return x_values[indices], y_values[indices]
-
-    def _build_time_plot(self, tx_signal, rx_signal, sample_rate_hz):
-        plot_len = min(self.time_plot_samples, len(tx_signal), len(rx_signal))
-        time_us = np.arange(plot_len, dtype=float) / sample_rate_hz * 1e6
-
-        return {
-            "x": time_us,
-            "title": "Señal OFDM en el Tiempo",
-            "xlabel": "Tiempo (µs)",
-            "ylabel": "Magnitud",
-            "series": [
-                {"label": "Tx |x[n]|", "y": np.abs(tx_signal[:plot_len])},
-                {"label": "Rx |y[n]|", "y": np.abs(rx_signal[:plot_len])},
-            ],
-        }
-
-    def _spectrum_db(self, signal, sample_rate_hz, segment_len):
-        segment = np.asarray(signal[:segment_len], dtype=np.complex128)
-        if len(segment) == 0:
-            return np.array([], dtype=float), np.array([], dtype=float)
-
-        window = np.hanning(len(segment))
-        fft_len = 1 << int(np.ceil(np.log2(len(segment))))
-        spectrum = np.fft.fftshift(np.fft.fft(segment * window, n=fft_len))
-        magnitude = np.abs(spectrum)
-        magnitude_db = 20 * np.log10(magnitude / (np.max(magnitude) + 1e-12) + 1e-12)
-        freq_mhz = np.fft.fftshift(np.fft.fftfreq(fft_len, d=1 / sample_rate_hz)) / 1e6
-        return self._decimate_plot(freq_mhz, magnitude_db, self.spectrum_plot_points)
-
-    def _build_frequency_plot(self, tx_signal, rx_signal, sample_rate_hz):
-        segment_len = min(self.spectrum_segment_samples, len(tx_signal), len(rx_signal))
-        freq_mhz, tx_spectrum = self._spectrum_db(tx_signal, sample_rate_hz, segment_len)
-        _, rx_spectrum = self._spectrum_db(rx_signal, sample_rate_hz, segment_len)
-
-        return {
-            "x": freq_mhz,
-            "title": "Espectro OFDM",
-            "xlabel": "Frecuencia (MHz)",
-            "ylabel": "Magnitud normalizada (dB)",
-            "ylim": (-90, 5),
-            "series": [
-                {"label": "Tx", "y": tx_spectrum},
-                {"label": "Rx", "y": rx_spectrum},
-            ],
-        }
 
     def run_image_transmission(
         self,
@@ -149,8 +94,6 @@ class OFDMSimulationManager:
             bit_errors = np.sum(tx_bits_raw != rx_bits)
             ber = bit_errors / valid_len
             rx_img_matrix = utils.bits_to_image(rx_bits, img_size)
-            time_plot = self._build_time_plot(tx_signal_cp, rx_signal_cp, sample_rate_hz)
-            frequency_plot = self._build_frequency_plot(tx_signal_cp, rx_signal_cp, sample_rate_hz)
             
             return {
                 "success": True,
@@ -159,8 +102,6 @@ class OFDMSimulationManager:
                 "ber": ber,
                 "snr": snr_db,
                 "channel_report": channel_report,
-                "time_plot": time_plot,
-                "frequency_plot": frequency_plot,
                 "info": f"BER: {ber:.5f} | Modo: {config.MODULATION_NAMES[mod_type]} | SC activas: {nc}"
             }
 

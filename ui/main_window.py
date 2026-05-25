@@ -75,7 +75,7 @@ class MainWindow(ctk.CTk):
 
         self.lbl_snr = ctk.CTkLabel(self.sidebar_frame, text="SNR: 15 dB")
         self.lbl_snr.grid(row=6, column=0, padx=20, pady=(10,0))
-        self.slider_snr = ctk.CTkSlider(self.sidebar_frame, from_=0, to=40, number_of_steps=40, command=self.update_snr_label)
+        self.slider_snr = ctk.CTkSlider(self.sidebar_frame, from_=0, to=30, number_of_steps=30, command=self.update_snr_label)
         self.slider_snr.grid(row=7, column=0, padx=20, pady=5)
         self.slider_snr.set(15)
 
@@ -135,8 +135,6 @@ class MainWindow(ctk.CTk):
         self.tabview.grid(row=0, column=1, padx=(20, 20), pady=(20, 20), sticky="nsew")
         
         self.tab_img = self.tabview.add("Visualización Imagen")
-        self.tab_time = self.tabview.add("Tiempo")
-        self.tab_freq = self.tabview.add("Frecuencia")
         self.tab_ber = self.tabview.add("Análisis BER")
         self.tab_papr = self.tabview.add("Análisis PAPR")
 
@@ -322,8 +320,6 @@ class MainWindow(ctk.CTk):
 
             self.lbl_tx_img.configure(image=self.tk_img_tx, text="")
             self.lbl_rx_img.configure(image=self.tk_img_rx, text="")
-            self.embed_signal_plot(self.tab_time, result["time_plot"])
-            self.embed_signal_plot(self.tab_freq, result["frequency_plot"])
             self.lbl_status.configure(text=result["info"], text_color="#30D760")
             self.tabview.set("Visualización Imagen")
         else:
@@ -439,40 +435,6 @@ class MainWindow(ctk.CTk):
         if log_y:
             ax.set_yscale('log')
             ax.set_ylim(bottom=floor * 0.1, top=1.1)
-
-        legend = ax.legend(facecolor='#2b2b2b', edgecolor='#555555')
-        for text in legend.get_texts():
-            text.set_color('white')
-
-        canvas = FigureCanvasTkAgg(fig, master=parent_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
-
-    def embed_signal_plot(self, parent_frame, plot_data):
-        for widget in parent_frame.winfo_children():
-            widget.destroy()
-
-        fig = Figure(figsize=(6, 4), dpi=100)
-        fig.patch.set_facecolor('#2b2b2b')
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor('#2b2b2b')
-
-        x_data = np.asarray(plot_data["x"], dtype=float)
-        colors = ['#30D760', '#4DA3FF', '#FFB000']
-        for idx, item in enumerate(plot_data["series"]):
-            y_data = np.asarray(item["y"], dtype=float)
-            ax.plot(x_data, y_data, color=colors[idx % len(colors)], linewidth=1.4, label=item["label"])
-
-        ax.set_title(plot_data["title"], color='white', fontsize=12)
-        ax.set_xlabel(plot_data["xlabel"], color='white')
-        ax.set_ylabel(plot_data["ylabel"], color='white')
-        ax.tick_params(axis='x', colors='white')
-        ax.tick_params(axis='y', colors='white')
-        ax.grid(True, color='#444444', linestyle='--')
-
-        if "ylim" in plot_data:
-            ax.set_ylim(*plot_data["ylim"])
 
         legend = ax.legend(facecolor='#2b2b2b', edgecolor='#555555')
         for text in legend.get_texts():
