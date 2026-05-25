@@ -44,6 +44,8 @@ PAPR empirico.
 - El ruido AWGN se referencia a la potencia transmitida, por lo que las
   atenuaciones del canal afectan la SNR recibida.
 - La transmision manual genera una nueva realizacion de canal y ruido por click.
+- El resumen de transmision muestra BER, bits totales de la imagen, simbolos
+  modulados y subportadoras activas.
 - La curva BER usa la imagen cargada como carga util y compara QPSK, 16-QAM y
   64-QAM simultaneamente.
 - La BER incluye intervalo de confianza al 95%.

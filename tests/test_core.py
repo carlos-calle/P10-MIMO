@@ -148,6 +148,31 @@ class CoreSimulationTests(unittest.TestCase):
         )
         self.assertTrue(result["success"])
         self.assertLess(result["ber"], 1e-3)
+        self.assertEqual(result["total_bits"], manager.img_size * manager.img_size * 8)
+        self.assertEqual(result["num_symbols"], result["total_bits"] // 4)
+        self.assertNotIn("Modo:", result["info"])
+        self.assertIn("Bits:", result["info"])
+        self.assertIn("Símbolos:", result["info"])
+        self.assertIn("SC activas: 600", result["info"])
+
+    def test_transmission_symbol_count_depends_on_modulation(self):
+        manager = OFDMSimulationManager()
+        manager.img_size = 16
+        bits_per_symbol = {1: 2, 2: 4, 3: 6}
+
+        for mod_type, n_bits in bits_per_symbol.items():
+            result = manager.run_image_transmission(
+                "imagenes/cameraman.jpg",
+                4,
+                1,
+                mod_type,
+                30,
+                1,
+                rng_seed=manager.mc_seed,
+            )
+            expected_symbols = int(np.ceil(result["total_bits"] / n_bits))
+            self.assertTrue(result["success"])
+            self.assertEqual(result["num_symbols"], expected_symbols)
 
     def test_analysis_curves_return_expected_series(self):
         manager = OFDMSimulationManager()

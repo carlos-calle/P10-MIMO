@@ -622,6 +622,16 @@ self.lbl_rx_img.configure(image=self.tk_img_rx, text="")
 self.lbl_status.configure(text=result["info"], text_color="#30D760")
 ```
 
+El texto de estado resume:
+
+```text
+BER | bits totales de la imagen | simbolos modulados | subportadoras activas
+```
+
+Los bits corresponden a la imagen ya redimensionada. Los simbolos dependen de
+la modulacion seleccionada: QPSK usa 2 bits por simbolo, 16-QAM usa 4 y 64-QAM
+usa 6, con padding al final si hiciera falta.
+
 ## 20. Resumen corto de la cadena
 
 ```text

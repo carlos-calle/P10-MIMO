@@ -71,6 +71,8 @@ class OFDMSimulationManager:
             
             tx_bits = utils.apply_scrambling(tx_bits_raw)
             tx_symbols = utils.map_bits_to_symbols(tx_bits, mod_type)
+            total_bits = len(tx_bits_raw)
+            num_symbols = len(tx_symbols)
             ofdm_time_signal, num_blocks = ofdm_ops.modulate_ofdm_with_pilots(tx_symbols, n_fft, nc)
             tx_signal_cp, cp_used = ofdm_ops.add_cyclic_prefix(ofdm_time_signal, num_blocks, n_fft, cp_lengths)
             
@@ -101,8 +103,10 @@ class OFDMSimulationManager:
                 "rx_image": rx_img_matrix,
                 "ber": ber,
                 "snr": snr_db,
+                "total_bits": total_bits,
+                "num_symbols": num_symbols,
                 "channel_report": channel_report,
-                "info": f"BER: {ber:.5f} | Modo: {config.MODULATION_NAMES[mod_type]} | SC activas: {nc}"
+                "info": f"BER: {ber:.5f} | Bits: {total_bits} | Símbolos: {num_symbols} | SC activas: {nc}"
             }
 
         except Exception as exc:
