@@ -48,6 +48,8 @@ PAPR empirico.
   64-QAM simultaneamente.
 - La BER incluye intervalo de confianza al 95%.
 - La curva PAPR compara las tres modulaciones y usa sobremuestreo `L=4`.
+- La transmision genera vistas de tiempo y frecuencia para comparar la senal
+  OFDM transmitida y recibida.
 - Las simulaciones pesadas corren en un worker thread para que la interfaz no
   se bloquee mientras calcula.
 
@@ -66,6 +68,8 @@ Estas partes son simplificaciones conscientes y conviene explicarlas como tal:
   Doppler/Jakes.
 - La imagen se procesa como escala de grises de `250x250`.
 - PAPR se mide antes del canal y antes del CP, sobre el simbolo OFDM util.
+- La grafica de frecuencia es una estimacion espectral normalizada de una
+  ventana de la senal, no una medicion RF con filtros analogicos.
 
 ## Riesgos revisados
 

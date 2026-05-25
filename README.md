@@ -13,6 +13,7 @@ Aplicacion de escritorio en Python para simular la transmision de una imagen med
 - Canal Rayleigh multipath con perfil `ITU Pedestrian A` y ruido AWGN.
 - Pilotos OFDM QPSK deterministas cada 6 subportadoras activas para estimacion de canal.
 - Ecualizacion usando la respuesta de canal estimada desde pilotos.
+- Visualizacion de la senal OFDM transmitida/recibida en tiempo y frecuencia.
 - Calculo Monte Carlo de BER sobre los bits reales de la imagen, comparando QPSK, 16-QAM y 64-QAM en una sola grafica.
 - Calculo empirico de CCDF de PAPR para QPSK, 16-QAM y 64-QAM usando la imagen cargada.
 - Intervalos de confianza al 95% en la curva BER.
@@ -111,6 +112,7 @@ La cadena principal esta en `controller/simulation_mgr.py`.
 14. Se demapean simbolos a bits.
 15. Se revierte el scrambling.
 16. Se calcula BER y se reconstruye la imagen recibida.
+17. Se generan las vistas de tiempo y frecuencia de la senal OFDM transmitida y recibida.
 
 Para la curva BER Monte Carlo no se generan bits aleatorios como carga util. Cada corrida parte de la misma imagen cargada y repite la transmision completa con nuevas realizaciones de ruido/canal y scrambling de la imagen para QPSK, 16-QAM y 64-QAM. En PAPR no se usa Monte Carlo: se calcula una CCDF empirica por modulacion sobre los bloques OFDM generados desde la imagen cargada.
 
@@ -157,6 +159,7 @@ El prefijo ciclico normal usa un primer simbolo mas largo por slot y seis simbol
 - Slider de caminos alineado al perfil activo: con `ITU Pedestrian A`, selecciona un slice de 1 a 4 caminos y la interfaz muestra retardos, ganancias, muestras discretas y margen de CP.
 - Pilotos QPSK deterministas cada 6 subportadoras activas y estimacion/interpolacion de canal en recepcion.
 - Aviso de margen CP/retardo para detectar posibles condiciones de ISI.
+- Pestanas de tiempo y frecuencia para inspeccionar la forma de onda OFDM y su espectro.
 - Curva BER multi-modulacion con Monte Carlo sobre la imagen cargada e intervalos de confianza al 95%.
 - PAPR sobremuestreado con `L=4` y documentacion tecnica en `PAPR.md`.
 - Worker thread para transmision, BER y PAPR, evitando que la ventana se congele mientras calcula.
