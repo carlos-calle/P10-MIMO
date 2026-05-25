@@ -95,11 +95,6 @@ class OFDMSimulationManager:
             ber = bit_errors / valid_len
             rx_img_matrix = utils.bits_to_image(rx_bits, img_size)
             
-            channel_note = (
-                "ISI esperada"
-                if channel_report["isi_expected"]
-                else f"CP OK: margen {channel_report['margin_samples']} muestras"
-            )
             return {
                 "success": True,
                 "tx_image": tx_img_matrix,
@@ -107,7 +102,7 @@ class OFDMSimulationManager:
                 "ber": ber,
                 "snr": snr_db,
                 "channel_report": channel_report,
-                "info": f"BER: {ber:.5f} | Modo: {config.MODULATION_NAMES[mod_type]} | {channel_note}"
+                "info": f"BER: {ber:.5f} | Modo: {config.MODULATION_NAMES[mod_type]} | SC activas: {nc}"
             }
 
         except Exception as exc:
