@@ -422,12 +422,12 @@ for delay, power, coeff in zip(sample_delays, power_linear, fading):
 return h
 ```
 
-El simulador usa por defecto el perfil `Didactico CP`, definido en
-`core/channel.py`. Este perfil no es ITU: se agrego para mostrar de forma clara
-el efecto del prefijo ciclico, con un camino directo y un eco a `12 us`.
-Tambien quedan disponibles los perfiles ITU Pedestrian/Vehicular para pruebas
-mas realistas. El slider de la interfaz selecciona un slice inicial del perfil:
-con valor `N` se usan los primeros `N` caminos del perfil.
+El simulador usa por defecto el perfil `ITU Pedestrian A`, definido en
+`core/channel.py`. Tambien queda disponible el perfil `Didactico CP`, que no es
+ITU: se agrego para mostrar de forma clara el efecto del prefijo ciclico, con
+un camino directo y un eco a `12 us`. El slider de la interfaz selecciona un
+slice inicial del perfil activo: con valor `N` se usan los primeros `N` caminos
+del perfil.
 
 La parte importante para OFDM es que los retardos fisicos del perfil se convierten
 a muestras usando:
@@ -454,8 +454,8 @@ margen = CP_minimo - retardo_maximo
 ```
 
 Si el margen es negativo, la interfaz lo marca como una condicion con ISI
-esperada. Con `Didactico CP`, el CP normal queda corto y el CP extendido si
-cubre el eco en las numerologias LTE incluidas.
+esperada. Al usar `Didactico CP` en pruebas controladas, el CP normal queda
+corto y el CP extendido si cubre el eco en las numerologias LTE incluidas.
 
 ## 13. Recepcion: quitar prefijo ciclico
 
@@ -486,6 +486,7 @@ rx_symbols_equalized, _ = ofdm_ops.demodulate_ofdm_with_pilots(
     n_fft,
     nc,
     max_channel_taps=len(h_used),
+    noise_to_signal=10 ** (-snr_db / 10),
 )
 ```
 
@@ -521,7 +522,8 @@ h_active = np.fft.fft(h_time)[active_subcarrier_indices(n_fft, nc)]
 Y se ecualiza:
 
 ```python
-equalized_grid = active_grid / h_est
+denom = np.abs(h_est) ** 2 + noise_to_signal
+equalized_grid = active_grid * np.conj(h_est) / denom
 return np.concatenate(data_blocks), h_est
 ```
 

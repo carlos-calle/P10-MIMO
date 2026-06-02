@@ -239,37 +239,13 @@ h_active = np.fft.fft(h_time)[active_subcarrier_indices(n_fft, nc)]
 Esto convierte el canal estimado en tiempo a respuesta en frecuencia sobre las
 subportadoras activas.
 
-## 9. Ecualizacion ZF
+## 9. Ecualizacion MMSE por subportadora
 
-El programa ecualiza con:
-
-```text
-X_ZF[k] = Y[k] / H_est[k]
-```
-
-Equivalente a:
+El programa ecualiza con una forma MMSE escalar:
 
 ```text
-G_ZF[k] = 1 / H_est[k]
+X_MMSE[k] = G_MMSE[k] Y[k]
 ```
-
-Este ecualizador cumple:
-
-```text
-G_ZF[k] H_est[k] = 1
-```
-
-Por eso se llama Zero-Forcing: fuerza a que el canal estimado desaparezca.
-
-Problema: si `H_est[k]` es pequeno:
-
-```text
-|G_ZF[k]| = 1 / |H_est[k]|
-```
-
-crece mucho y amplifica el ruido.
-
-## 10. Ecualizacion MMSE por subportadora
 
 El ecualizador MMSE busca minimizar:
 
@@ -295,6 +271,31 @@ Dividiendo por `sigma_x^2`:
 G_MMSE[k] = H^*[k] / (|H[k]|^2 + sigma_w^2 / sigma_x^2)
 ```
 
+En el codigo, el termino:
+
+```text
+noise_to_signal
+```
+
+representa esa razon `sigma_w^2 / sigma_x^2`.
+
+## 10. Zero-Forcing como caso limite
+
+ZF seria:
+
+```text
+G_ZF[k] = 1 / H[k] = H^*[k] / |H[k]|^2
+```
+
+Cuando `sigma_w^2` es muy pequeno:
+
+```text
+G_MMSE[k] approx G_ZF[k]
+```
+
+La diferencia es que MMSE no cancela el canal de forma tan agresiva cuando
+`|H[k]|` es pequeno; por eso evita amplificar tanto el ruido.
+
 Si definimos:
 
 ```text
@@ -307,40 +308,7 @@ entonces:
 G_MMSE[k] = H^*[k] / (|H[k]|^2 + 1/gamma)
 ```
 
-## 11. Comparacion ZF vs MMSE
-
-ZF:
-
-```text
-G_ZF[k] = 1 / H[k] = H^*[k] / |H[k]|^2
-```
-
-MMSE:
-
-```text
-G_MMSE[k] = H^*[k] / (|H[k]|^2 + sigma_w^2 / sigma_x^2)
-```
-
-Diferencia:
-
-- ZF cancela el canal sin considerar ruido.
-- MMSE acepta no cancelar perfectamente el canal si eso evita amplificar ruido.
-
-Cuando `sigma_w^2` es muy pequeno:
-
-```text
-G_MMSE[k] approx G_ZF[k]
-```
-
-Cuando `|H[k]|^2` es muy pequeno:
-
-```text
-G_MMSE[k] < G_ZF[k]
-```
-
-en magnitud, y por eso es mas estable.
-
-## 12. Estado exacto del programa
+## 11. Estado exacto del programa
 
 El programa actualmente hace:
 
@@ -353,16 +321,14 @@ Canal:
   H_est = FFT(h_reg)
 
 Ecualizacion:
-  X_est = Y / H_est
+  X_est = H_est^* Y / (|H_est|^2 + noise_to_signal)
 ```
 
 Esto es:
 
 - LS en pilotos.
 - Estimacion DFT/LS regularizada de canal.
-- Ecualizacion Zero-Forcing.
+- Ecualizacion MMSE escalar.
 
 La parte regularizada puede entenderse como una version simplificada de LMMSE
-si se interpreta `lambda` como una relacion ruido/potencia del canal. Pero no
-hay un ecualizador MMSE completo en la ultima etapa.
-
+si se interpreta `lambda` como una relacion ruido/potencia del canal.

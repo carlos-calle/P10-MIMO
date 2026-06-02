@@ -1,7 +1,7 @@
 import numpy as np
 
 
-DEFAULT_RAYLEIGH_PROFILE = "ITU Vehicular B"
+DEFAULT_RAYLEIGH_PROFILE = "ITU Pedestrian A"
 
 CHANNEL_PROFILES = {
     "Didactico CP": {
@@ -29,17 +29,12 @@ CHANNEL_PROFILES = {
     },
 }
 
-# Alias historico: se conserva para compatibilidad con codigo/documentacion
-# existente que aun consulte los perfiles ITU por este nombre.
-ITU_RAYLEIGH_PROFILES = CHANNEL_PROFILES
-
-
 def _as_rng(rng=None):
     return np.random.default_rng() if rng is None else rng
 
 
 def get_rayleigh_profile(profile_name=DEFAULT_RAYLEIGH_PROFILE):
-    """Devuelve una copia del perfil ITU usado para construir el canal."""
+    """Devuelve una copia del perfil usado para construir el canal."""
     if profile_name not in CHANNEL_PROFILES:
         raise ValueError(f"Perfil Rayleigh desconocido: {profile_name}")
 
@@ -119,14 +114,6 @@ def _normalize_power_profile(power_profile):
     return power_profile / total_power
 
 
-def _generate_exponential_rayleigh(num_taps, rng, decay_factor):
-    taps = (
-        rng.standard_normal(num_taps) + 1j * rng.standard_normal(num_taps)
-    ) / np.sqrt(2)
-    power_delay = _normalize_power_profile(np.exp(-decay_factor * np.arange(num_taps)))
-    return taps * np.sqrt(power_delay)
-
-
 def _generate_profile_rayleigh(num_taps, sample_rate_hz, profile_name, rng):
     profile = describe_rayleigh_paths(num_taps, sample_rate_hz, profile_name)
     path_count = profile["active_paths"]
@@ -159,26 +146,21 @@ def _generate_profile_rayleigh(num_taps, sample_rate_hz, profile_name, rng):
 def generate_rayleigh_channel(
     num_taps=1,
     rng=None,
-    decay_factor=0.5,
     sample_rate_hz=None,
     profile_name=DEFAULT_RAYLEIGH_PROFILE,
 ):
     """
     Genera una respuesta impulsiva SISO multipath.
 
-    Si se entrega sample_rate_hz, se discretiza el PDP ITU de practica1,
-    incluso para un solo camino. Si no se entrega sample_rate_hz y num_taps=1,
-    se conserva h=[1] como canal AWGN de compatibilidad.
+    El canal se obtiene discretizando el perfil elegido con la tasa de muestreo
+    OFDM, por eso `sample_rate_hz` es obligatorio.
     """
     if num_taps <= 0:
         raise ValueError("El numero de caminos debe ser positivo")
-    if num_taps == 1 and sample_rate_hz is None:
-        return np.array([1.0 + 0j], dtype=np.complex128)
+    if sample_rate_hz is None:
+        raise ValueError("sample_rate_hz es obligatorio para discretizar el canal")
 
     rng = _as_rng(rng)
-    if sample_rate_hz is None:
-        return _generate_exponential_rayleigh(num_taps, rng, decay_factor)
-
     return _generate_profile_rayleigh(num_taps, sample_rate_hz, profile_name, rng)
 
 

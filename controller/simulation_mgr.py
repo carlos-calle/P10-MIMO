@@ -124,6 +124,7 @@ class OFDMSimulationManager:
                 n_fft,
                 nc,
                 max_channel_taps=len(h_used),
+                noise_to_signal=10 ** (-snr_db / 10),
             )
             rx_bits_scrambled = utils.demap_symbols_to_bits(rx_symbols_equalized, mod_type)
             
@@ -172,7 +173,8 @@ class OFDMSimulationManager:
         mod_type,
         valid_len,
         scramble_seed,
-        max_channel_taps=None,
+        max_channel_taps,
+        noise_to_signal,
     ):
         rx_no_cp = ofdm_ops.remove_cyclic_prefix(rx_cp, n_fft, cp_used)
         rx_eq, _ = ofdm_ops.demodulate_ofdm_with_pilots(
@@ -180,6 +182,7 @@ class OFDMSimulationManager:
             n_fft,
             nc,
             max_channel_taps=max_channel_taps,
+            noise_to_signal=noise_to_signal,
         )
         rx_bits_scrambled = utils.demap_symbols_to_bits(rx_eq, mod_type)[:valid_len]
         return utils.apply_scrambling(rx_bits_scrambled, seed=scramble_seed)
@@ -224,6 +227,7 @@ class OFDMSimulationManager:
                     valid_len,
                     scramble_seed,
                     max_channel_taps=len(h_run),
+                    noise_to_signal=10 ** (-snr / 10),
                 )
                 errors = int(np.sum(tx_bits_raw != rx_bits[:valid_len]))
                 run_ber = errors / valid_len

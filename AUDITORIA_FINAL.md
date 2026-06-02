@@ -38,10 +38,11 @@ PAPR empirico.
 - QPSK, 16-QAM y 64-QAM usan constelaciones normalizadas.
 - La estimacion de canal se hace con pilotos conocidos y ecualizacion por
   subportadora.
-- El canal usa por defecto el perfil no ITU `Didactico CP`, con un eco a
-  `12 us` elegido para quedar fuera del CP normal y dentro del CP extendido.
-- Los perfiles ITU Pedestrian/Vehicular siguen disponibles para pruebas mas
-  realistas y se discretizan segun `Fs = NFFT * Delta_f`.
+- El canal usa por defecto el perfil `ITU Pedestrian A`, discretizado segun
+  `Fs = NFFT * Delta_f`.
+- El perfil no ITU `Didactico CP` sigue disponible para pruebas controladas del
+  CP: tiene un eco a `12 us` elegido para quedar fuera del CP normal y dentro
+  del CP extendido.
 - El ruido AWGN se referencia a la potencia transmitida, por lo que las
   atenuaciones del canal afectan la SNR recibida.
 - La transmision manual usa una semilla fija por defecto para que la misma
@@ -67,9 +68,8 @@ Estas partes son simplificaciones conscientes y conviene explicarlas como tal:
 - No hay codificacion de canal, interleaving, HARQ ni planificador.
 - No hay tramas/subtramas LTE completas ni canales fisicos PDCCH/PDSCH reales.
 - Los pilotos son una simplificacion inspirada en CRS: se colocan en todos los
-  simbolos OFDM. La separacion CRS LTE de referencia es 6 subportadoras, pero
-  el simulador usa 2 para que la estimacion de canal no tape el efecto
-  didactico del CP.
+  simbolos OFDM con separacion base de 6 subportadoras y patron escalonado 0/3
+  entre bloques.
 - El receptor asume sincronizacion perfecta.
 - No se modela CFO, error de temporizacion, ruido de fase ni no linealidad RF.
 - El canal Rayleigh es estatico durante cada transmision/corrida; no incluye

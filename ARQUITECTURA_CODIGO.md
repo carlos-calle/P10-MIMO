@@ -276,22 +276,19 @@ Responsabilidades principales:
 - agregar prefijo ciclico;
 - retirar prefijo ciclico;
 - aplicar FFT en recepcion;
-- estimar canal usando pilotos;
-- interpolar la respuesta de canal;
-- ecualizar datos recibidos.
+- estimar canal usando pilotos y LS regularizado en dominio temporal;
+- reconstruir la respuesta de canal sobre las subportadoras activas;
+- ecualizar datos recibidos con MMSE escalar.
 
 Funciones importantes:
 
 - `active_subcarrier_indices`: devuelve indices FFT activos.
 - `pilot_subcarrier_mask`: marca posiciones de pilotos.
 - `pilot_symbol_grid`: genera pilotos QPSK deterministicos.
-- `modulate_ofdm`: OFDM sin pilotos.
 - `modulate_ofdm_with_pilots`: OFDM con pilotos.
 - `add_cyclic_prefix`: inserta CP por bloque.
 - `remove_cyclic_prefix`: elimina CP.
-- `demodulate_ofdm`: recupera subportadoras activas.
 - `demodulate_ofdm_with_pilots`: estima canal, ecualiza y devuelve datos.
-- `equalize_channel`: ecualizador Zero-Forcing usando una respuesta conocida.
 
 Este archivo trabaja con arreglos complejos y no sabe nada de imagenes o GUI.
 
@@ -311,7 +308,7 @@ Responsabilidades principales:
 Estructuras y funciones importantes:
 
 - `CHANNEL_PROFILES`: perfil didactico de CP y perfiles Pedestrian/Vehicular.
-- `DEFAULT_RAYLEIGH_PROFILE`: perfil por defecto, `Didactico CP`.
+- `DEFAULT_RAYLEIGH_PROFILE`: perfil por defecto, `ITU Pedestrian A`.
 - `get_rayleigh_profile`: devuelve una copia del perfil.
 - `describe_rayleigh_paths`: resume caminos activos.
 - `cp_safety_report`: indica margen entre retardo maximo y CP minimo.

@@ -221,34 +221,29 @@ H_est[k] = DFT{h_reg}[k]
 Asi el receptor obtiene una estimacion `H_est[k]` para cada subportadora activa,
 incluidas las que no eran piloto.
 
-## 10. Ecualizacion Zero-Forcing
+## 10. Ecualizacion MMSE escalar
 
 Con `H_est[k]`, el codigo ecualiza:
 
 ```python
-equalized_grid = active_grid / h_est
+denom = np.abs(h_est) ** 2 + noise_to_signal
+equalized_grid = active_grid * np.conj(h_est) / denom
 ```
 
 La formula es:
 
 ```text
-X_ZF[k] = Y[k] / H_est[k]
+X_MMSE[k] = H_est^*[k] Y[k] / (|H_est[k]|^2 + sigma_w^2 / sigma_x^2)
 ```
 
-Esta tecnica se llama Zero-Forcing porque intenta invertir el canal por completo.
+En el codigo, `noise_to_signal` representa aproximadamente:
 
-El riesgo es que si `|H_est[k]|` es muy pequeno, la division amplifica el ruido.
-Por eso el codigo protege:
-
-```python
-small = np.abs(h_est) < threshold
-h_est[small] = threshold + 0j
+```text
+sigma_w^2 / sigma_x^2
 ```
 
-## 11. Ecualizacion MMSE
-
-Un ecualizador MMSE no invierte el canal de forma tan agresiva. Su forma tipica
-por subportadora es:
+La diferencia frente a Zero-Forcing es que MMSE no invierte el canal de forma tan
+agresiva. El denominador incluye el termino de ruido:
 
 ```text
 G_MMSE[k] = H_est^*[k] / (|H_est[k]|^2 + sigma_w^2 / sigma_x^2)
@@ -285,8 +280,7 @@ El programa implementa:
 Estimacion en pilotos: LS
 Promedio temporal: si
 Reconstruccion de canal: DFT/LS regularizado
-Ecualizacion final: ZF
-MMSE completo: no
+Ecualizacion final: MMSE escalar
 ```
 
 La parte mas cercana a MMSE es:
@@ -297,4 +291,3 @@ La parte mas cercana a MMSE es:
 
 porque la regularizacion cumple un papel parecido al termino de ruido en MMSE:
 reduce soluciones extremas y mejora estabilidad.
-

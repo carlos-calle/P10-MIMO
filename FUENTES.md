@@ -46,12 +46,13 @@ Estas partes son elecciones de modelado para mantener el simulador didactico y l
 - Transmitir una imagen en escala de grises como flujo de bits.
 - Redimensionar la imagen a `250x250`.
 - Usar scrambling XOR con semilla local.
-- Usar `Didactico CP` como perfil activo por defecto: no es ITU, sino un canal determinista de dos caminos con eco a `12 us`, creado para mostrar el efecto del CP normal frente al CP extendido.
-- Mantener perfiles ITU Pedestrian/Vehicular discretizados como alternativas de canal mas realistas.
+- Usar `ITU Pedestrian A` como perfil activo por defecto.
+- Mantener `Didactico CP` como perfil no ITU de prueba: es un canal determinista de dos caminos con eco a `12 us`, creado para mostrar el efecto del CP normal frente al CP extendido.
+- Mantener perfiles ITU Pedestrian/Vehicular discretizados como alternativas de canal realistas.
 - Asumir sincronizacion perfecta.
 - Usar Monte Carlo para BER con un numero configurable de corridas.
 - Usar factor de sobremuestreo `L=4` para estimar PAPR.
-- Simplificar los CRS LTE a pilotos QPSK deterministas en todos los simbolos OFDM. La separacion CRS LTE de referencia es de 6 subportadoras; la separacion actual del simulador es de 2 subportadoras para que la estimacion de canal no tape el efecto didactico del CP con el perfil `Didactico CP`.
+- Simplificar los CRS LTE a pilotos QPSK deterministas en todos los simbolos OFDM. La separacion base actual del simulador es de 6 subportadoras, con patron escalonado 0/3 entre bloques.
 - Mantener el canal Rayleigh estatico por corrida, sin variacion temporal Doppler/Jakes.
 
 ## Nota sobre espaciamiento entre subportadoras

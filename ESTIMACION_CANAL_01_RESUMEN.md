@@ -106,43 +106,41 @@ Para eso usa una estimacion en dominio temporal:
 
 ## Ecualizacion
 
-Una vez estimado el canal, el receptor corrige cada subportadora dividiendo por
-la estimacion del canal:
+Una vez estimado el canal, el receptor corrige cada subportadora con un
+ecualizador MMSE escalar:
 
 ```text
-X_estimado[k] = Y[k] / H_estimado[k]
+X_estimado[k] = H_estimado*[k] Y[k] / (|H_estimado[k]|^2 + sigma^2)
 ```
 
 En el codigo:
 
 ```python
-equalized_grid = active_grid / h_est
+equalized_grid = active_grid * np.conj(h_est) / (np.abs(h_est) ** 2 + noise_to_signal)
 ```
 
-Esta parte es una ecualizacion Zero-Forcing.
+Si `noise_to_signal = 0`, esta formula se reduce al caso Zero-Forcing.
 
 ## Y el MMSE?
 
-El programa no implementa un ecualizador MMSE completo en la ultima division.
-La ecualizacion final es Zero-Forcing.
+El programa usa dos ideas relacionadas con MMSE:
 
-Lo que si tiene el programa es una estimacion de canal regularizada:
+1. Una estimacion de canal regularizada:
 
 ```python
 (A^H A + lambda I)^(-1) A^H
 ```
 
-Esa regularizacion se parece conceptualmente a una idea MMSE/LMMSE: no confiar
-ciegamente en una solucion LS pura cuando hay ruido o cuando el problema puede
-estar mal condicionado.
+2. Una ecualizacion MMSE escalar que usa `noise_to_signal` calculado desde la
+   SNR de simulacion.
 
 Por eso, en este simulador:
 
 - Estimacion inicial en pilotos: LS.
 - Reconstruccion del canal: LS regularizado en dominio temporal.
-- Ecualizacion final: Zero-Forcing.
-- Relacion con MMSE: aparece en la regularizacion, no como ecualizador MMSE
-  completo.
+- Ecualizacion final: MMSE escalar por subportadora.
+- Relacion con MMSE: aparece en la regularizacion del canal y en la
+  ecualizacion final.
 
 ## Resumen del flujo
 
@@ -167,4 +165,3 @@ Estimar H[k]
       v
 Ecualizar datos: Y[k] / H[k]
 ```
-

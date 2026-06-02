@@ -108,28 +108,6 @@ def _cp_lengths_for_blocks(cp_config, num_blocks, n_fft):
     return np.tile(cp_pattern, repeats)[:num_blocks]
 
 
-def modulate_ofdm(symbols, n_fft, nc):
-    """
-    Empaqueta simbolos en subportadoras centradas y aplica IFFT.
-
-    symbols: array de simbolos complejos QPSK/QAM.
-    n_fft: tamano total de FFT.
-    nc: numero de subportadoras activas.
-    """
-    symbols = np.asarray(symbols, dtype=np.complex128)
-    num_symbols = len(symbols)
-    num_blocks = int(np.ceil(num_symbols / nc)) if num_symbols else 0
-    if num_blocks == 0:
-        return np.array([], dtype=np.complex128), 0
-
-    padded = np.zeros(num_blocks * nc, dtype=np.complex128)
-    padded[:num_symbols] = symbols
-    data_grid = padded.reshape(num_blocks, nc)
-
-    time_grid = _map_active_grid_to_time(data_grid, n_fft, nc)
-    return time_grid.reshape(-1), num_blocks
-
-
 def modulate_ofdm_with_pilots(
     symbols,
     n_fft,
@@ -213,31 +191,6 @@ def remove_cyclic_prefix(rx_signal, n_fft, cp_config):
     return np.concatenate(rx_no_cp)
 
 
-def demodulate_ofdm(rx_time_signal, n_fft, nc):
-    """Aplica FFT y recupera las subportadoras activas."""
-    return _time_to_active_grid(rx_time_signal, n_fft, nc).reshape(-1)
-
-
-def _interpolate_channel_from_points(pilot_values, pilot_indices, nc):
-    subcarrier_indices = np.arange(nc)
-    h_real = np.interp(subcarrier_indices, pilot_indices, pilot_values.real)
-    h_imag = np.interp(subcarrier_indices, pilot_indices, pilot_values.imag)
-    return h_real + 1j * h_imag
-
-
-def _interpolate_channel_from_pilots(h_pilots, pilot_indices, nc):
-    """Interpolacion lineal compleja de H[k] estimada en pilotos."""
-    h_real = np.empty((h_pilots.shape[0], nc), dtype=float)
-    h_imag = np.empty((h_pilots.shape[0], nc), dtype=float)
-
-    for block_idx, pilot_values in enumerate(h_pilots):
-        h_est = _interpolate_channel_from_points(pilot_values, pilot_indices, nc)
-        h_real[block_idx] = h_est.real
-        h_imag[block_idx] = h_est.imag
-
-    return h_real + 1j * h_imag
-
-
 def _average_pilot_observations(active_grid, pilot_masks, pilots, nc):
     sum_h = np.zeros(nc, dtype=np.complex128)
     count_h = np.zeros(nc, dtype=int)
@@ -252,16 +205,6 @@ def _average_pilot_observations(active_grid, pilot_masks, pilots, nc):
     if len(known_indices) == 0:
         return known_indices, np.array([], dtype=np.complex128)
     return known_indices, sum_h[known_indices] / count_h[known_indices]
-
-
-def _estimate_channel_from_staggered_pilots(active_grid, pilot_masks, pilots, nc):
-    """Promedia LS en tiempo y usa el patron escalonado como malla mas densa."""
-    known_indices, h_known = _average_pilot_observations(active_grid, pilot_masks, pilots, nc)
-    if len(known_indices) == 0:
-        return np.ones_like(active_grid, dtype=np.complex128)
-
-    h_mean = _interpolate_channel_from_points(h_known, known_indices, nc)
-    return np.tile(h_mean, (active_grid.shape[0], 1))
 
 
 @lru_cache(maxsize=32)
@@ -306,15 +249,22 @@ def _estimate_channel_from_time_domain_ls(
     return np.tile(h_active, (active_grid.shape[0], 1))
 
 
+def _equalize_grid(active_grid, h_est, noise_to_signal=0.0, threshold=1e-10):
+    noise_to_signal = max(0.0, float(noise_to_signal))
+    denom = np.abs(h_est) ** 2 + noise_to_signal
+    denom[denom < threshold] = threshold
+    return active_grid * np.conj(h_est) / denom
+
+
 def demodulate_ofdm_with_pilots(
     rx_time_signal,
     n_fft,
     nc,
+    max_channel_taps,
+    noise_to_signal=0.0,
     pilot_spacing=PILOT_SPACING_SC,
     pilot_seed=PILOT_SEED,
     pilot_staggered=PILOT_STAGGER_ENABLED,
-    temporal_average=True,
-    max_channel_taps=None,
     channel_estimation_ridge=CHANNEL_ESTIMATION_RIDGE,
     threshold=1e-10,
 ):
@@ -334,54 +284,24 @@ def demodulate_ofdm_with_pilots(
         raise ValueError("El patron de pilotos debe mantener el mismo overhead por bloque")
 
     pilots = pilot_symbol_grid(num_blocks, int(pilot_counts[0]), pilot_seed)
-    if temporal_average and max_channel_taps is not None:
-        h_est = _estimate_channel_from_time_domain_ls(
-            active_grid,
-            pilot_masks,
-            pilots,
-            n_fft,
-            nc,
-            max_channel_taps,
-            channel_estimation_ridge,
-        )
-    elif temporal_average:
-        h_est = _estimate_channel_from_staggered_pilots(active_grid, pilot_masks, pilots, nc)
-    else:
-        h_blocks = []
-        for block_idx, pilot_mask in enumerate(pilot_masks):
-            h_blocks.append(active_grid[block_idx, pilot_mask] / pilots[block_idx])
-        h_est = np.empty((num_blocks, nc), dtype=np.complex128)
-        for block_idx, h_pilots in enumerate(h_blocks):
-            pilot_indices = np.flatnonzero(pilot_masks[block_idx])
-            h_est[block_idx] = _interpolate_channel_from_points(h_pilots, pilot_indices, nc)
+    h_est = _estimate_channel_from_time_domain_ls(
+        active_grid,
+        pilot_masks,
+        pilots,
+        n_fft,
+        nc,
+        max_channel_taps,
+        channel_estimation_ridge,
+    )
 
-    small = np.abs(h_est) < threshold
-    h_est[small] = threshold + 0j
-
-    equalized_grid = active_grid / h_est
+    equalized_grid = _equalize_grid(
+        active_grid,
+        h_est,
+        noise_to_signal,
+        threshold,
+    )
     data_blocks = [
         equalized_grid[block_idx, ~pilot_masks[block_idx]]
         for block_idx in range(num_blocks)
     ]
     return np.concatenate(data_blocks), h_est
-
-
-def equalize_channel(rx_freq_symbols, h_impulse_response, n_fft, nc, threshold=1e-10):
-    """
-    Ecualizador Zero-Forcing por subportadora.
-
-    Divide Y[k] por H[k] en las mismas subportadoras activas usadas en Tx/Rx.
-    """
-    rx_freq_symbols = np.asarray(rx_freq_symbols, dtype=np.complex128)
-    num_blocks = len(rx_freq_symbols) // nc
-    if num_blocks == 0:
-        return np.array([], dtype=np.complex128)
-
-    h_freq = np.fft.fft(h_impulse_response, n_fft)
-    h_data = h_freq[active_subcarrier_indices(n_fft, nc)].copy()
-
-    small = np.abs(h_data) < threshold
-    h_data[small] = threshold + 0j
-
-    blocks = rx_freq_symbols[:num_blocks * nc].reshape(num_blocks, nc)
-    return (blocks / h_data).reshape(-1)

@@ -127,6 +127,7 @@ rx_symbols_equalized, _ = ofdm_ops.demodulate_ofdm_with_pilots(
     n_fft,
     nc,
     max_channel_taps=len(h_used),
+    noise_to_signal=10 ** (-snr_db / 10),
 )
 ```
 
@@ -271,50 +272,51 @@ Es decir:
 
 Asi se obtiene una estimacion de canal para todas las subportadoras activas.
 
-## 11. Ecualizacion
+## 11. Ecualizacion MMSE escalar
 
-Antes de dividir, el codigo evita divisiones por valores casi cero:
-
-```python
-small = np.abs(h_est) < threshold
-h_est[small] = threshold + 0j
-```
-
-Luego ecualiza:
+El controlador pasa al demodulador una razon ruido/senal aproximada:
 
 ```python
-equalized_grid = active_grid / h_est
+noise_to_signal = 10 ** (-snr_db / 10)
 ```
 
-Esto corresponde a:
+Con eso el receptor ecualiza:
 
 ```text
-X_est[k] = Y[k] / H_est[k]
+X_est[k] = H_est*[k] Y[k] / (|H_est[k]|^2 + noise_to_signal)
 ```
 
-La ecualizacion final es Zero-Forcing.
+En el codigo:
+
+```python
+denom = np.abs(h_est) ** 2 + noise_to_signal
+equalized_grid = active_grid * np.conj(h_est) / denom
+```
+
+Si `noise_to_signal` fuera cero, esta formula se reduce a Zero-Forcing.
 
 ## 12. Relacion con MMSE
 
-El ecualizador MMSE clasico no divide solamente por `H[k]`. Usa una forma como:
+El programa usa MMSE en dos lugares:
 
-```text
-X_est[k] = H*[k] / (|H[k]|^2 + sigma_w^2 / sigma_x^2) * Y[k]
-```
-
-El programa no usa esta formula en la ecualizacion final.
-
-Sin embargo, la estimacion de canal si tiene una regularizacion:
+Primero, la estimacion de canal usa regularizacion:
 
 ```text
 (A^H A + lambda I)^(-1) A^H
 ```
 
-Esa estructura se parece al espiritu MMSE porque penaliza soluciones demasiado
-grandes y reduce sensibilidad al ruido. Por eso conviene decir:
+Esa estructura es compatible con una lectura LMMSE simplificada cuando `lambda`
+representa una relacion entre ruido y potencia esperada del canal.
+
+Segundo, la ecualizacion final usa:
 
 ```text
-El programa usa estimacion DFT/LS regularizada y ecualizacion ZF.
-La regularizacion esta relacionada con MMSE, pero no es un MMSE completo.
+H_est*[k] / (|H_est[k]|^2 + noise_to_signal)
 ```
 
+Por eso conviene decir:
+
+```text
+El programa usa estimacion LS regularizada en dominio temporal y ecualizacion
+MMSE escalar por subportadora.
+```

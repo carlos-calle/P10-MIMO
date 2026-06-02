@@ -301,71 +301,50 @@ return np.tile(h_active, (active_grid.shape[0], 1))
 
 Esto equivale a asumir canal invariante durante la transmision.
 
-## 11. Proteccion contra valores pequenos
+## 11. Proteccion numerica
 
 Antes de ecualizar:
 
 ```python
-small = np.abs(h_est) < threshold
-h_est[small] = threshold + 0j
+denom = np.abs(h_est) ** 2 + noise_to_signal
+denom[denom < threshold] = threshold
 ```
 
-Esto evita divisiones por cero o casi cero. No es MMSE, pero cumple una funcion
-practica parecida: limita casos numericamente explosivos.
+Esto evita divisiones por cero o casi cero cuando el canal estimado es muy
+pequeno.
 
-## 12. Ecualizador implementado: Zero-Forcing
+## 12. Ecualizador implementado: MMSE escalar
 
 La ecualizacion final es:
 
 ```python
-equalized_grid = active_grid / h_est
+denom = np.abs(h_est) ** 2 + noise_to_signal
+equalized_grid = active_grid * np.conj(h_est) / denom
 ```
 
 Matematicamente:
 
 ```text
-X_hat_ZF[k] = Y[k] / H_est[k]
+X_hat_MMSE[k] = H_est^*[k] Y[k] / (|H_est[k]|^2 + sigma_w^2/sigma_x^2)
 ```
 
-o:
+En el codigo, `noise_to_signal` representa la razon:
 
 ```text
-G_ZF[k] = H_est^*[k] / |H_est[k]|^2
+sigma_w^2/sigma_x^2
 ```
 
-cuando `H_est[k]` no es cero.
-
-ZF es optimo si no hay ruido y la estimacion del canal es perfecta. Con ruido,
-puede amplificar mucho las subportadoras en desvanecimiento profundo.
-
-## 13. Ecualizador MMSE que no esta implementado
-
-Un ecualizador MMSE por subportadora seria:
+Si el ruido tiende a cero, el MMSE escalar se aproxima al caso Zero-Forcing:
 
 ```text
-G_MMSE[k] = H_est^*[k] / (|H_est[k]|^2 + sigma_w^2 / sigma_x^2)
+H_est^*[k] / |H_est[k]|^2 = 1/H_est[k]
 ```
 
-y:
+## 13. Que MMSE no se implementa
 
-```text
-X_hat_MMSE[k] = G_MMSE[k] Y[k]
-```
-
-Para implementarlo en el programa harian falta al menos:
-
-1. Una estimacion de `sigma_w^2`, la potencia de ruido.
-2. Una estimacion de `sigma_x^2`, la potencia media de los simbolos.
-3. Pasar el SNR o la varianza de ruido al demodulador.
-
-En el controlador ya se conoce el SNR de simulacion, por lo que seria posible
-agregar una rama:
-
-```text
-equalized = active_grid * conj(h_est) / (abs(h_est)^2 + noise_to_signal)
-```
-
-Pero eso seria una modificacion adicional. El estado actual es ZF.
+Lo que no se implementa es un LMMSE completo con matrices de covarianza reales
+del canal y del ruido. El estimador de canal usa una regularizacion escalar
+`lambda`, no una matriz estadistica `R_hh`.
 
 ## 14. Por que la mejora actual funciona
 
@@ -393,7 +372,7 @@ y = H_LS,p
 y = A h + n
 h_reg = (A^H A + lambda I)^(-1) A^H y
 H_est = FFT(h_reg)
-X_hat = Y / H_est
+X_hat = H_est^* Y / (|H_est|^2 + noise_to_signal)
 ```
 
 Y la clasificacion correcta es:
@@ -402,11 +381,11 @@ Y la clasificacion correcta es:
 Estimador de pilotos: LS
 Estimador de canal completo: DFT/LS regularizado
 Interpretacion MMSE: LMMSE simplificado por regularizacion
-Ecualizador final: Zero-Forcing
-Ecualizador MMSE completo: no implementado actualmente
+Ecualizador final: MMSE escalar
+LMMSE completo con covarianzas: no implementado actualmente
 ```
 
 Esta distincion es importante para explicar bien el simulador: se usa una idea
-matematica cercana a MMSE en la estimacion, pero la etapa de ecualizacion sigue
-siendo una inversion por subportadora.
-
+matematica cercana a LMMSE en la estimacion del canal y un MMSE escalar en la
+ecualizacion, pero no se implementa un receptor LMMSE completo con estadisticas
+detalladas del canal.

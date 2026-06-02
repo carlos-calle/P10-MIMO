@@ -59,18 +59,17 @@ class CoreSimulationTests(unittest.TestCase):
         recovered = utils.apply_scrambling(scrambled)
         self.assertTrue(np.array_equal(bits, recovered))
 
-    def test_ofdm_roundtrip_with_variable_cp(self):
+    def test_cyclic_prefix_roundtrip_with_pilots(self):
         rng = np.random.default_rng(99)
         bits = rng.integers(0, 2, 8192, dtype=np.uint8)
         symbols = utils.map_bits_to_symbols(bits, 2)
         n_fft, nc, cp_lengths, _ = utils.get_ofdm_params(4, 1)
 
-        time_signal, num_blocks = ofdm_ops.modulate_ofdm(symbols, n_fft, nc)
+        time_signal, num_blocks = ofdm_ops.modulate_ofdm_with_pilots(symbols, n_fft, nc)
         with_cp, cp_used = ofdm_ops.add_cyclic_prefix(time_signal, num_blocks, n_fft, cp_lengths)
         no_cp = ofdm_ops.remove_cyclic_prefix(with_cp, n_fft, cp_used)
-        recovered = ofdm_ops.demodulate_ofdm(no_cp, n_fft, nc)[:len(symbols)]
 
-        self.assertTrue(np.allclose(symbols, recovered))
+        self.assertTrue(np.allclose(time_signal, no_cp))
 
     def test_ofdm_roundtrip_with_pilot_channel_estimation(self):
         rng = np.random.default_rng(19)
@@ -81,9 +80,15 @@ class CoreSimulationTests(unittest.TestCase):
         time_signal, num_blocks = ofdm_ops.modulate_ofdm_with_pilots(symbols, n_fft, nc)
         with_cp, cp_used = ofdm_ops.add_cyclic_prefix(time_signal, num_blocks, n_fft, cp_lengths)
         no_cp = ofdm_ops.remove_cyclic_prefix(with_cp, n_fft, cp_used)
-        recovered, h_est = ofdm_ops.demodulate_ofdm_with_pilots(no_cp, n_fft, nc)
+        recovered, h_est = ofdm_ops.demodulate_ofdm_with_pilots(
+            no_cp,
+            n_fft,
+            nc,
+            max_channel_taps=1,
+        )
 
-        self.assertTrue(np.allclose(symbols, recovered[:len(symbols)]))
+        recovered_bits = utils.demap_symbols_to_bits(recovered, 2)[:len(bits)]
+        self.assertTrue(np.array_equal(bits, recovered_bits))
         self.assertEqual(h_est.shape, (num_blocks, nc))
         self.assertEqual(
             int(np.sum(ofdm_ops.pilot_subcarrier_mask(nc))),

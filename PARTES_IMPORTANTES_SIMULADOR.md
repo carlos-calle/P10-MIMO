@@ -250,7 +250,11 @@ Y despues se recupera:
 ```python
 rx_signal_no_cp = ofdm_ops.remove_cyclic_prefix(rx_signal_cp, n_fft, cp_used)
 rx_symbols_equalized, _ = ofdm_ops.demodulate_ofdm_with_pilots(
-    rx_signal_no_cp, n_fft, nc
+    rx_signal_no_cp,
+    n_fft,
+    nc,
+    max_channel_taps=len(h_used),
+    noise_to_signal=10 ** (-snr_db / 10),
 )
 rx_bits_scrambled = utils.demap_symbols_to_bits(rx_symbols_equalized, mod_type)
 rx_bits = utils.apply_scrambling(rx_bits_scrambled)
@@ -670,7 +674,8 @@ active_grid = _time_to_active_grid(rx_time_signal, n_fft, nc)
 known_indices, h_known = _average_pilot_observations(active_grid, pilot_masks, pilots, nc)
 h_taps = weights @ h_known
 h_est = np.tile(h_active, (active_grid.shape[0], 1))
-equalized_grid = active_grid / h_est
+denom = np.abs(h_est) ** 2 + noise_to_signal
+equalized_grid = active_grid * np.conj(h_est) / denom
 return np.concatenate(data_blocks), h_est
 ```
 
@@ -687,15 +692,15 @@ Esta parte:
 
 Archivo: `core/channel.py`
 
-### Perfiles ITU
+### Perfiles de canal
 
 El perfil por defecto es:
 
 ```python
-DEFAULT_RAYLEIGH_PROFILE = "Didactico CP"
+DEFAULT_RAYLEIGH_PROFILE = "ITU Pedestrian A"
 ```
 
-Ejemplo de perfil:
+Tambien existe un perfil didactico para pruebas de CP:
 
 ```python
 "Didactico CP": {
@@ -705,8 +710,9 @@ Ejemplo de perfil:
 }
 ```
 
-Este perfil no es ITU. Se usa para mostrar que el CP normal queda corto frente
-a un eco de `12 us`, mientras que el CP extendido si lo cubre.
+Este perfil no es ITU. Se usa en pruebas controladas para mostrar que el CP
+normal queda corto frente a un eco de `12 us`, mientras que el CP extendido si
+lo cubre.
 
 ### Reporte del CP
 

@@ -10,7 +10,7 @@ Aplicacion de escritorio en Python para simular la transmision de una imagen med
 - Modulaciones QPSK, 16-QAM y 64-QAM.
 - Modulacion y demodulacion OFDM con IFFT/FFT.
 - Prefijo ciclico normal y extendido.
-- Canal multipath con perfil didactico `Didactico CP` por defecto, perfiles ITU disponibles y ruido AWGN.
+- Canal multipath con perfil `ITU Pedestrian A` por defecto, perfil didactico `Didactico CP` disponible y ruido AWGN.
 - Pilotos OFDM QPSK deterministas cada 6 subportadoras activas, con desplazamiento alternado entre bloques.
 - Ecualizacion usando una estimacion de canal DFT/LS regularizada desde pilotos.
 - Calculo Monte Carlo de BER sobre los bits reales de la imagen, comparando QPSK, 16-QAM y 64-QAM en una sola grafica.
@@ -141,7 +141,7 @@ El prefijo ciclico normal usa un primer simbolo mas largo por slot y seis simbol
 - `core/config.py`: tablas de ancho de banda, prefijo ciclico y constelaciones.
 - `core/utils.py`: conversion imagen/bits, scrambling y mapeo/demapeo digital.
 - `core/ofdm_ops.py`: modulacion OFDM, prefijo ciclico, FFT/IFFT y ecualizacion.
-- `core/channel.py`: canal AWGN y Rayleigh multipath con perfiles ITU discretizados.
+- `core/channel.py`: canal AWGN y multipath con perfiles ITU y un perfil didactico discretizados.
 - `tests/test_core.py`: pruebas de parametros, constelaciones, OFDM y smoke test del controlador.
 - `PAPR.md`: explicacion tecnica del calculo de PAPR y CCDF.
 - `MEJORA_ESTIMACION_CANAL.md`: cambio aplicado a pilotos y estimacion de canal para observar mejor el efecto del CP.
@@ -156,9 +156,9 @@ El prefijo ciclico normal usa un primer simbolo mas largo por slot y seis simbol
 - Subportadoras OFDM distribuidas alrededor de DC, dejando DC vacia.
 - Prefijo ciclico normal variable por simbolo de slot.
 - FFT de 15 MHz corregida a 1536.
-- Perfil por defecto `Didactico CP`, no ITU, con un eco a `12 us` para mostrar la diferencia entre CP normal y extendido.
-- Perfiles ITU Rayleigh Pedestrian/Vehicular disponibles en `core/channel.py`, discretizados con `Fs = NFFT * Delta_f` y potencia media del PDP normalizada.
-- Slider de caminos alineado al perfil activo: con `Didactico CP`, selecciona 1 camino directo o 2 caminos con eco didactico; la interfaz muestra retardos, ganancias, muestras discretas y margen de CP.
+- Perfil por defecto `ITU Pedestrian A`, discretizado con `Fs = NFFT * Delta_f` y potencia media del PDP normalizada.
+- Perfil `Didactico CP`, no ITU, disponible en `core/channel.py` para pruebas controladas del efecto CP: usa un camino directo y un eco a `12 us`.
+- Slider de caminos alineado al perfil activo por defecto; la interfaz muestra retardos, ganancias, muestras discretas y margen de CP.
 - Pilotos QPSK deterministas cada 6 subportadoras activas, con patron escalonado 0/3 entre bloques y estimacion DFT/LS regularizada. Esta aproximacion conserva una separacion base tipo CRS y evita que la estimacion de canal tape el efecto didactico del CP.
 - Aviso de margen CP/retardo para detectar posibles condiciones de ISI.
 - Curva BER multi-modulacion con Monte Carlo sobre la imagen cargada e intervalos de confianza al 95%.
@@ -214,7 +214,7 @@ venv/bin/python -m unittest discover -v
 
 - Es una simulacion educativa de LTE-OFDM, no una implementacion LTE completa.
 - El receptor asume sincronizacion perfecta.
-- La estimacion de canal por pilotos esta simplificada: se hace en todos los simbolos OFDM y se interpola solo en frecuencia.
+- La estimacion de canal por pilotos esta simplificada: el canal se considera estatico durante cada transmision y se estima con LS regularizado en dominio temporal.
 - El canal Rayleigh usa taps estaticos durante cada transmision o corrida; no modela aun variacion temporal Jakes/Doppler.
 - No modela el grid completo LTE con tramas, slots, canales fisicos, codificacion, HARQ ni senalizacion de referencia LTE completa.
 - Las simulaciones largas se ejecutan en un worker thread; aun no hay boton de cancelacion ni progreso por corrida.
