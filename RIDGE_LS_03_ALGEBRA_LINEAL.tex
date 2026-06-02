@@ -1,0 +1,285 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\title{Ridge/LS 03: algebra lineal, rango, invertibilidad y diagonales}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Por que hace falta algebra lineal}
+
+La expresion:
+\[
+    (A^H A + \lambda I)^{-1}A^H
+\]
+solo tiene sentido si entendemos algunas ideas de algebra lineal:
+
+\begin{itemize}
+    \item matrices complejas;
+    \item transpuesta conjugada;
+    \item rango;
+    \item matrices Hermitianas;
+    \item matrices definidas positivas;
+    \item invertibilidad;
+    \item eigenvalues;
+    \item condicionamiento numerico.
+\end{itemize}
+
+\section{Matrices complejas y transpuesta conjugada}
+
+En comunicaciones digitales aparecen exponenciales complejas:
+\[
+    e^{-j2\pi k\ell/N}.
+\]
+
+Por eso \(A\) es compleja.
+
+Para matrices complejas, la transpuesta adecuada es:
+\[
+    A^H = \overline{A}^T.
+\]
+
+Primero se conjuga y luego se transpone.
+
+Ejemplo:
+\[
+A =
+\begin{bmatrix}
+    1+j & 2\\
+    -j & 3-j
+\end{bmatrix}
+\]
+
+entonces:
+\[
+A^H =
+\begin{bmatrix}
+    1-j & j\\
+    2 & 3+j
+\end{bmatrix}.
+\]
+
+\section{Rango}
+
+El rango de \(A\) indica cuantas columnas realmente independientes tiene.
+
+Si:
+\[
+    A \in \mathbb{C}^{M\times L},
+\]
+entonces el maximo rango posible es:
+\[
+    \min(M,L).
+\]
+
+Para estimar \(L\) taps con LS, se necesita:
+\[
+    \mathrm{rank}(A)=L.
+\]
+
+Esto implica que debe haber al menos tantas observaciones utiles como taps:
+\[
+    M \ge L.
+\]
+
+En el codigo aparece una proteccion:
+\[
+    \texttt{tap\_count} \le \texttt{len(known\_indices)}.
+\]
+
+Eso evita intentar estimar mas taps que ecuaciones disponibles.
+
+\section{La matriz \(A^H A\)}
+
+Definimos:
+\[
+    G = A^H A.
+\]
+
+Si \(A\) tiene dimensiones \(M\times L\), entonces:
+\[
+    G \in \mathbb{C}^{L\times L}.
+\]
+
+Es decir, \(G\) es cuadrada aunque \(A\) no lo sea.
+
+\section{Diagonal de \(A^H A\)}
+
+El elemento diagonal \(G_{ii}\) es:
+\[
+    G_{ii} = \bm a_i^H \bm a_i = \|\bm a_i\|_2^2.
+\]
+
+Aqui \(\bm a_i\) es la columna \(i\)-esima de \(A\).
+
+Por tanto, la diagonal de \(A^H A\) contiene energias de columnas.
+
+\section{Elementos fuera de la diagonal}
+
+El elemento \(G_{ij}\) es:
+\[
+    G_{ij} = \bm a_i^H \bm a_j.
+\]
+
+Esto es el producto interno entre dos columnas.
+
+Si \(G_{ij}=0\), las columnas son ortogonales. Si \(|G_{ij}|\) es grande, las
+columnas se parecen.
+
+Cuando muchas columnas se parecen, \(A^H A\) se vuelve dificil de invertir.
+
+\section{Matriz Hermitiana}
+
+Una matriz \(G\) es Hermitiana si:
+\[
+    G^H = G.
+\]
+
+La matriz \(A^H A\) siempre es Hermitiana:
+\[
+    (A^H A)^H = A^H (A^H)^H = A^H A.
+\]
+
+Las matrices Hermitianas tienen eigenvalues reales. Esto es muy importante
+para analizar estabilidad.
+
+\section{Semidefinida positiva}
+
+Para cualquier vector \(\bm x\):
+\[
+\begin{aligned}
+    \bm x^H A^H A \bm x
+    &=
+    (A\bm x)^H(A\bm x)\\
+    &=
+    \|A\bm x\|_2^2\\
+    &\ge 0.
+\end{aligned}
+\]
+
+Por eso \(A^H A\) es semidefinida positiva.
+
+Sus eigenvalues cumplen:
+\[
+    \mu_i \ge 0.
+\]
+
+\section{Definida positiva e invertibilidad}
+
+Si \(A\) tiene rango columna completo:
+\[
+    \bm x \ne 0
+    \quad \Rightarrow \quad
+    A\bm x \ne 0.
+\]
+
+Entonces:
+\[
+    \bm x^H A^H A\bm x = \|A\bm x\|^2 > 0.
+\]
+
+En ese caso \(A^H A\) es definida positiva y todos sus eigenvalues son:
+\[
+    \mu_i > 0.
+\]
+
+Por tanto es invertible.
+
+\section{Que hace \(\lambda I\) en la diagonal}
+
+Si:
+\[
+G =
+\begin{bmatrix}
+g_{11} & g_{12}\\
+g_{21} & g_{22}
+\end{bmatrix},
+\]
+entonces:
+\[
+G+\lambda I =
+\begin{bmatrix}
+g_{11}+\lambda & g_{12}\\
+g_{21} & g_{22}+\lambda
+\end{bmatrix}.
+\]
+
+La regularizacion aumenta solo la diagonal.
+
+Intuitivamente, hace que la matriz se parezca un poco mas a una matriz diagonal
+dominante, lo cual suele mejorar la inversion numerica.
+
+\section{Eigenvalues}
+
+Si \(G=A^H A\) tiene eigenvalues:
+\[
+    \mu_1,\mu_2,\ldots,\mu_L,
+\]
+entonces:
+\[
+    G+\lambda I
+\]
+tiene eigenvalues:
+\[
+    \mu_1+\lambda,\mu_2+\lambda,\ldots,\mu_L+\lambda.
+\]
+
+Esto es crucial.
+
+Si algun \(\mu_i\) era cero o muy pequeno, al sumar \(\lambda\) queda:
+\[
+    \mu_i+\lambda \ge \lambda.
+\]
+
+Por tanto, ya no hay eigenvalues menores que \(\lambda\).
+
+\section{Condicionamiento}
+
+El numero de condicion de una matriz definida positiva es:
+\[
+    \kappa(G) = \frac{\mu_{\max}}{\mu_{\min}}.
+\]
+
+Si \(\mu_{\min}\) es muy pequeno, \(\kappa(G)\) es muy grande y la inversion
+amplifica errores.
+
+Con regularizacion:
+\[
+    \kappa(G+\lambda I)
+    =
+    \frac{\mu_{\max}+\lambda}{\mu_{\min}+\lambda}.
+\]
+
+Esto suele ser menor que \(\kappa(G)\), especialmente si \(\mu_{\min}\) era muy
+pequeno.
+
+\section{Conclusion}
+
+Desde el punto de vista de algebra lineal:
+\[
+    A^H A
+\]
+contiene la geometria de las columnas de \(A\), y:
+\[
+    \lambda I
+\]
+mejora la invertibilidad al aumentar todos los eigenvalues.
+
+Por eso:
+\[
+    (A^H A + \lambda I)^{-1}A^H
+\]
+es mas estable que:
+\[
+    (A^H A)^{-1}A^H.
+\]
+
+\end{document}
+

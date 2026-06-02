@@ -1,6 +1,14 @@
+from functools import lru_cache
+
 import numpy as np
 
-from .config import PILOT_SEED, PILOT_SPACING_SC
+from .config import (
+    CHANNEL_ESTIMATION_RIDGE,
+    PILOT_SEED,
+    PILOT_SPACING_SC,
+    PILOT_STAGGER_ENABLED,
+    PILOT_STAGGER_OFFSET_SC,
+)
 
 
 def active_subcarrier_indices(n_fft, nc):
@@ -21,11 +29,40 @@ def active_subcarrier_indices(n_fft, nc):
     return np.concatenate((negative, positive))
 
 
-def pilot_subcarrier_mask(nc, pilot_spacing=PILOT_SPACING_SC):
+def _pilot_offset(block_idx, pilot_spacing, staggered):
+    if not staggered:
+        return 0
+    return (int(block_idx) % 2) * (PILOT_STAGGER_OFFSET_SC % pilot_spacing)
+
+
+def pilot_subcarrier_mask(
+    nc,
+    pilot_spacing=PILOT_SPACING_SC,
+    block_idx=0,
+    staggered=PILOT_STAGGER_ENABLED,
+):
     """Mascara de pilotos dentro de las subportadoras activas."""
     if pilot_spacing <= 0:
         raise ValueError("El espaciamiento de pilotos debe ser positivo")
-    return (np.arange(nc) % pilot_spacing) == 0
+    offset = _pilot_offset(block_idx, pilot_spacing, staggered)
+    return ((np.arange(nc) - offset) % pilot_spacing) == 0
+
+
+def pilot_subcarrier_masks(
+    num_blocks,
+    nc,
+    pilot_spacing=PILOT_SPACING_SC,
+    staggered=PILOT_STAGGER_ENABLED,
+):
+    """Mascara 2D de pilotos con desplazamiento alternado por bloque."""
+    if num_blocks <= 0:
+        return np.empty((0, nc), dtype=bool)
+    return np.vstack(
+        [
+            pilot_subcarrier_mask(nc, pilot_spacing, block_idx, staggered)
+            for block_idx in range(num_blocks)
+        ]
+    )
 
 
 def pilot_symbol_grid(num_blocks, num_pilots, seed=PILOT_SEED):
@@ -99,29 +136,38 @@ def modulate_ofdm_with_pilots(
     nc,
     pilot_spacing=PILOT_SPACING_SC,
     pilot_seed=PILOT_SEED,
+    pilot_staggered=PILOT_STAGGER_ENABLED,
 ):
     """
     Inserta pilotos conocidos en la grilla activa y aplica IFFT.
 
-    El piloto se ubica cada `pilot_spacing` subportadoras activas. Los simbolos
-    de datos ocupan las posiciones restantes.
+    El piloto se ubica cada `pilot_spacing` subportadoras activas. Si el
+    patron escalonado esta activo, los bloques alternan un desplazamiento de
+    media separacion para densificar la estimacion en frecuencia.
     """
     symbols = np.asarray(symbols, dtype=np.complex128)
-    pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing)
-    data_mask = ~pilot_mask
-    data_per_block = int(np.sum(data_mask))
+    first_pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing, 0, pilot_staggered)
+    data_per_block = nc - int(np.sum(first_pilot_mask))
     num_symbols = len(symbols)
     num_blocks = int(np.ceil(num_symbols / data_per_block)) if num_symbols else 0
     if num_blocks == 0:
         return np.array([], dtype=np.complex128), 0
+
+    pilot_masks = pilot_subcarrier_masks(num_blocks, nc, pilot_spacing, pilot_staggered)
+    pilot_counts = np.sum(pilot_masks, axis=1)
+    if not np.all(pilot_counts == pilot_counts[0]):
+        raise ValueError("El patron de pilotos debe mantener el mismo overhead por bloque")
 
     padded = np.zeros(num_blocks * data_per_block, dtype=np.complex128)
     padded[:num_symbols] = symbols
     data_grid = padded.reshape(num_blocks, data_per_block)
 
     active_grid = np.zeros((num_blocks, nc), dtype=np.complex128)
-    active_grid[:, pilot_mask] = pilot_symbol_grid(num_blocks, int(np.sum(pilot_mask)), pilot_seed)
-    active_grid[:, data_mask] = data_grid
+    pilots = pilot_symbol_grid(num_blocks, int(pilot_counts[0]), pilot_seed)
+    for block_idx in range(num_blocks):
+        pilot_mask = pilot_masks[block_idx]
+        active_grid[block_idx, pilot_mask] = pilots[block_idx]
+        active_grid[block_idx, ~pilot_mask] = data_grid[block_idx]
 
     time_grid = _map_active_grid_to_time(active_grid, n_fft, nc)
     return time_grid.reshape(-1), num_blocks
@@ -172,17 +218,92 @@ def demodulate_ofdm(rx_time_signal, n_fft, nc):
     return _time_to_active_grid(rx_time_signal, n_fft, nc).reshape(-1)
 
 
+def _interpolate_channel_from_points(pilot_values, pilot_indices, nc):
+    subcarrier_indices = np.arange(nc)
+    h_real = np.interp(subcarrier_indices, pilot_indices, pilot_values.real)
+    h_imag = np.interp(subcarrier_indices, pilot_indices, pilot_values.imag)
+    return h_real + 1j * h_imag
+
+
 def _interpolate_channel_from_pilots(h_pilots, pilot_indices, nc):
     """Interpolacion lineal compleja de H[k] estimada en pilotos."""
-    subcarrier_indices = np.arange(nc)
     h_real = np.empty((h_pilots.shape[0], nc), dtype=float)
     h_imag = np.empty((h_pilots.shape[0], nc), dtype=float)
 
     for block_idx, pilot_values in enumerate(h_pilots):
-        h_real[block_idx] = np.interp(subcarrier_indices, pilot_indices, pilot_values.real)
-        h_imag[block_idx] = np.interp(subcarrier_indices, pilot_indices, pilot_values.imag)
+        h_est = _interpolate_channel_from_points(pilot_values, pilot_indices, nc)
+        h_real[block_idx] = h_est.real
+        h_imag[block_idx] = h_est.imag
 
     return h_real + 1j * h_imag
+
+
+def _average_pilot_observations(active_grid, pilot_masks, pilots, nc):
+    sum_h = np.zeros(nc, dtype=np.complex128)
+    count_h = np.zeros(nc, dtype=int)
+
+    for block_idx, pilot_mask in enumerate(pilot_masks):
+        pilot_indices = np.flatnonzero(pilot_mask)
+        h_ls = active_grid[block_idx, pilot_mask] / pilots[block_idx]
+        sum_h[pilot_indices] += h_ls
+        count_h[pilot_indices] += 1
+
+    known_indices = np.flatnonzero(count_h > 0)
+    if len(known_indices) == 0:
+        return known_indices, np.array([], dtype=np.complex128)
+    return known_indices, sum_h[known_indices] / count_h[known_indices]
+
+
+def _estimate_channel_from_staggered_pilots(active_grid, pilot_masks, pilots, nc):
+    """Promedia LS en tiempo y usa el patron escalonado como malla mas densa."""
+    known_indices, h_known = _average_pilot_observations(active_grid, pilot_masks, pilots, nc)
+    if len(known_indices) == 0:
+        return np.ones_like(active_grid, dtype=np.complex128)
+
+    h_mean = _interpolate_channel_from_points(h_known, known_indices, nc)
+    return np.tile(h_mean, (active_grid.shape[0], 1))
+
+
+@lru_cache(maxsize=32)
+def _time_domain_ls_weights(n_fft, nc, tap_count, known_indices_tuple, ridge):
+    active_bins = active_subcarrier_indices(n_fft, nc)
+    known_indices = np.asarray(known_indices_tuple, dtype=int)
+    pilot_bins = active_bins[known_indices]
+    taps = np.arange(tap_count)
+    basis = np.exp(-2j * np.pi * pilot_bins[:, None] * taps[None, :] / n_fft)
+    if ridge > 0:
+        gram = basis.conj().T @ basis
+        return np.linalg.solve(gram + ridge * np.eye(tap_count), basis.conj().T)
+    return np.linalg.pinv(basis)
+
+
+def _estimate_channel_from_time_domain_ls(
+    active_grid,
+    pilot_masks,
+    pilots,
+    n_fft,
+    nc,
+    max_channel_taps,
+    ridge,
+):
+    """Estima taps del canal desde pilotos y reconstruye H[k] por FFT."""
+    known_indices, h_known = _average_pilot_observations(active_grid, pilot_masks, pilots, nc)
+    if len(known_indices) == 0:
+        return np.ones_like(active_grid, dtype=np.complex128)
+
+    tap_count = min(max(1, int(max_channel_taps)), n_fft, len(known_indices))
+    weights = _time_domain_ls_weights(
+        n_fft,
+        nc,
+        tap_count,
+        tuple(known_indices.tolist()),
+        float(ridge),
+    )
+    h_taps = weights @ h_known
+    h_time = np.zeros(n_fft, dtype=np.complex128)
+    h_time[:tap_count] = h_taps
+    h_active = np.fft.fft(h_time)[active_subcarrier_indices(n_fft, nc)]
+    return np.tile(h_active, (active_grid.shape[0], 1))
 
 
 def demodulate_ofdm_with_pilots(
@@ -191,6 +312,10 @@ def demodulate_ofdm_with_pilots(
     nc,
     pilot_spacing=PILOT_SPACING_SC,
     pilot_seed=PILOT_SEED,
+    pilot_staggered=PILOT_STAGGER_ENABLED,
+    temporal_average=True,
+    max_channel_taps=None,
+    channel_estimation_ridge=CHANNEL_ESTIMATION_RIDGE,
     threshold=1e-10,
 ):
     """
@@ -202,18 +327,43 @@ def demodulate_ofdm_with_pilots(
     if active_grid.shape[0] == 0:
         return np.array([], dtype=np.complex128), active_grid
 
-    pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing)
-    data_mask = ~pilot_mask
-    pilot_indices = np.flatnonzero(pilot_mask)
+    num_blocks = active_grid.shape[0]
+    pilot_masks = pilot_subcarrier_masks(num_blocks, nc, pilot_spacing, pilot_staggered)
+    pilot_counts = np.sum(pilot_masks, axis=1)
+    if not np.all(pilot_counts == pilot_counts[0]):
+        raise ValueError("El patron de pilotos debe mantener el mismo overhead por bloque")
 
-    pilots = pilot_symbol_grid(active_grid.shape[0], len(pilot_indices), pilot_seed)
-    h_pilots = active_grid[:, pilot_mask] / pilots
-    h_est = _interpolate_channel_from_pilots(h_pilots, pilot_indices, nc)
+    pilots = pilot_symbol_grid(num_blocks, int(pilot_counts[0]), pilot_seed)
+    if temporal_average and max_channel_taps is not None:
+        h_est = _estimate_channel_from_time_domain_ls(
+            active_grid,
+            pilot_masks,
+            pilots,
+            n_fft,
+            nc,
+            max_channel_taps,
+            channel_estimation_ridge,
+        )
+    elif temporal_average:
+        h_est = _estimate_channel_from_staggered_pilots(active_grid, pilot_masks, pilots, nc)
+    else:
+        h_blocks = []
+        for block_idx, pilot_mask in enumerate(pilot_masks):
+            h_blocks.append(active_grid[block_idx, pilot_mask] / pilots[block_idx])
+        h_est = np.empty((num_blocks, nc), dtype=np.complex128)
+        for block_idx, h_pilots in enumerate(h_blocks):
+            pilot_indices = np.flatnonzero(pilot_masks[block_idx])
+            h_est[block_idx] = _interpolate_channel_from_points(h_pilots, pilot_indices, nc)
+
     small = np.abs(h_est) < threshold
     h_est[small] = threshold + 0j
 
     equalized_grid = active_grid / h_est
-    return equalized_grid[:, data_mask].reshape(-1), h_est
+    data_blocks = [
+        equalized_grid[block_idx, ~pilot_masks[block_idx]]
+        for block_idx in range(num_blocks)
+    ]
+    return np.concatenate(data_blocks), h_est
 
 
 def equalize_channel(rx_freq_symbols, h_impulse_response, n_fft, nc, threshold=1e-10):

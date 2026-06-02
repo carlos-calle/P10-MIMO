@@ -1,0 +1,319 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\title{Ridge/LS 04: eigenvalues, SVD y estabilidad numerica}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Objetivo}
+
+Este archivo explica que ocurre con:
+\[
+    (A^H A + \lambda I)^{-1}A^H
+\]
+desde la perspectiva espectral. Es decir, usando eigenvalues, singular values y
+direcciones principales.
+
+\section{Descomposicion en valores singulares}
+
+Toda matriz compleja \(A\in\mathbb{C}^{M\times L}\) puede escribirse como:
+\[
+    A = U\Sigma V^H.
+\]
+
+Aqui:
+
+\begin{itemize}
+    \item \(U\) contiene direcciones ortonormales en el espacio de mediciones.
+    \item \(V\) contiene direcciones ortonormales en el espacio de parametros.
+    \item \(\Sigma\) contiene los valores singulares \(\sigma_i\).
+\end{itemize}
+
+Los valores singulares cumplen:
+\[
+    \sigma_i \ge 0.
+\]
+
+\section{Relacion con \(A^H A\)}
+
+Si:
+\[
+    A = U\Sigma V^H,
+\]
+entonces:
+\[
+\begin{aligned}
+    A^H A
+    &=
+    (U\Sigma V^H)^H(U\Sigma V^H)\\
+    &=
+    V\Sigma^H U^H U\Sigma V^H\\
+    &=
+    V\Sigma^H\Sigma V^H.
+\end{aligned}
+\]
+
+Como \(U^H U = I\), queda:
+\[
+    A^H A = V\Sigma^2 V^H.
+\]
+
+Por tanto, los eigenvalues de \(A^H A\) son:
+\[
+    \mu_i = \sigma_i^2.
+\]
+
+\section{LS puro visto con SVD}
+
+El estimador LS puro es:
+\[
+    \hat{\bm h}_{LS} = (A^H A)^{-1}A^H\bm y.
+\]
+
+Usando SVD:
+\[
+    A^\dagger = V\Sigma^\dagger U^H.
+\]
+
+Esto significa:
+\[
+    \hat{\bm h}_{LS}
+    =
+    \sum_i
+    \frac{1}{\sigma_i}
+    \bm v_i
+    \bm u_i^H
+    \bm y.
+\]
+
+Cada componente de \(\bm y\) en la direccion \(\bm u_i\) se amplifica por:
+\[
+    \frac{1}{\sigma_i}.
+\]
+
+Si \(\sigma_i\) es pequeno, esa direccion se amplifica muchisimo.
+
+\section{Riesgo de valores singulares pequenos}
+
+Supongamos:
+\[
+    \bm y = A\bm h + \bm n.
+\]
+
+Entonces:
+\[
+    \hat{\bm h}_{LS}
+    =
+    A^\dagger A\bm h
+    +
+    A^\dagger \bm n.
+\]
+
+El segundo termino es ruido filtrado:
+\[
+    A^\dagger \bm n.
+\]
+
+Si algun \(\sigma_i\) es pequeno, el ruido en esa direccion se multiplica por:
+\[
+    \frac{1}{\sigma_i}.
+\]
+
+Este es uno de los motivos principales para usar regularizacion.
+
+\section{Ridge visto con SVD}
+
+El estimador ridge es:
+\[
+    \hat{\bm h}_{ridge}
+    =
+    (A^H A+\lambda I)^{-1}A^H\bm y.
+\]
+
+Usando:
+\[
+    A^H A = V\Sigma^2 V^H,
+\]
+tenemos:
+\[
+    A^H A+\lambda I
+    =
+    V(\Sigma^2+\lambda I)V^H.
+\]
+
+Su inversa es:
+\[
+    (A^H A+\lambda I)^{-1}
+    =
+    V(\Sigma^2+\lambda I)^{-1}V^H.
+\]
+
+Ademas:
+\[
+    A^H = V\Sigma^H U^H.
+\]
+
+Entonces:
+\[
+    (A^H A+\lambda I)^{-1}A^H
+    =
+    V(\Sigma^2+\lambda I)^{-1}\Sigma^H U^H.
+\]
+
+\section{Factores de filtrado}
+
+El estimador ridge se puede escribir como:
+\[
+    \hat{\bm h}_{ridge}
+    =
+    \sum_i
+    \frac{\sigma_i}{\sigma_i^2+\lambda}
+    \bm v_i
+    \bm u_i^H
+    \bm y.
+\]
+
+El factor:
+\[
+    f_i(\lambda)
+    =
+    \frac{\sigma_i}{\sigma_i^2+\lambda}
+\]
+reemplaza al factor LS puro:
+\[
+    f_i(0) = \frac{1}{\sigma_i}.
+\]
+
+\section{Que pasa si \(\sigma_i\) es pequeno}
+
+En LS puro:
+\[
+    f_i(0)=\frac{1}{\sigma_i}.
+\]
+
+Si \(\sigma_i\to 0\), entonces:
+\[
+    f_i(0)\to\infty.
+\]
+
+En ridge:
+\[
+    f_i(\lambda)
+    =
+    \frac{\sigma_i}{\sigma_i^2+\lambda}.
+\]
+
+Si \(\sigma_i\to 0\), entonces:
+\[
+    f_i(\lambda)\to 0.
+\]
+
+Esto significa que ridge no amplifica direcciones poco confiables; las atenua.
+
+\section{Interpretacion como filtro}
+
+Ridge actua como un filtro espectral:
+
+\begin{itemize}
+    \item Direcciones con \(\sigma_i\) grande: se conservan.
+    \item Direcciones con \(\sigma_i\) pequeno: se reducen.
+\end{itemize}
+
+Por eso regularizar mejora estabilidad cuando el problema esta mal condicionado.
+
+\section{Eigenvalues desplazados}
+
+Como:
+\[
+    \mu_i = \sigma_i^2,
+\]
+la matriz regularizada tiene eigenvalues:
+\[
+    \mu_i+\lambda
+    =
+    \sigma_i^2+\lambda.
+\]
+
+Por tanto:
+\[
+    \lambda
+\]
+pone un piso minimo a los eigenvalues.
+
+\section{Numero de condicion}
+
+Para \(A^H A\):
+\[
+    \kappa(A^H A)
+    =
+    \frac{\sigma_{\max}^2}{\sigma_{\min}^2}.
+\]
+
+Para la matriz regularizada:
+\[
+    \kappa(A^H A+\lambda I)
+    =
+    \frac{\sigma_{\max}^2+\lambda}{\sigma_{\min}^2+\lambda}.
+\]
+
+Si \(\sigma_{\min}^2\) es muy pequeno, la regularizacion reduce mucho el numero
+de condicion.
+
+\section{Bias y varianza}
+
+Ridge introduce un compromiso:
+
+\begin{itemize}
+    \item Reduce varianza: amplifica menos el ruido.
+    \item Introduce bias: ya no ajusta exactamente como LS puro.
+\end{itemize}
+
+Ese compromiso suele ser deseable cuando hay ruido.
+
+En estimacion de canal, esto significa:
+
+\begin{itemize}
+    \item LS puro puede seguir demasiado el ruido de los pilotos.
+    \item Ridge produce un canal estimado mas suave y estable.
+\end{itemize}
+
+\section{Conexion con el simulador}
+
+En el programa, \(A\) es una matriz parcial de Fourier. Sus valores singulares
+dependen de:
+
+\begin{itemize}
+    \item posiciones de pilotos;
+    \item cantidad de pilotos;
+    \item cantidad de taps estimados;
+    \item patron escalonado entre bloques.
+\end{itemize}
+
+La regularizacion:
+\[
+    \lambda = 10^{-2}
+\]
+evita que direcciones mal observadas del canal generen taps demasiado grandes.
+
+\section{Conclusion}
+
+La forma:
+\[
+    (A^H A+\lambda I)^{-1}A^H
+\]
+no solo es una formula algebraica. Es un filtro espectral:
+\[
+    \frac{\sigma_i}{\sigma_i^2+\lambda}.
+\]
+
+Esa es la clave para entender por que es mas estable que LS puro.
+
+\end{document}

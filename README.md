@@ -10,9 +10,9 @@ Aplicacion de escritorio en Python para simular la transmision de una imagen med
 - Modulaciones QPSK, 16-QAM y 64-QAM.
 - Modulacion y demodulacion OFDM con IFFT/FFT.
 - Prefijo ciclico normal y extendido.
-- Canal Rayleigh multipath con perfil `ITU Pedestrian A` y ruido AWGN.
-- Pilotos OFDM QPSK deterministas cada 6 subportadoras activas para estimacion de canal.
-- Ecualizacion usando la respuesta de canal estimada desde pilotos.
+- Canal multipath con perfil didactico `Didactico CP` por defecto, perfiles ITU disponibles y ruido AWGN.
+- Pilotos OFDM QPSK deterministas cada 6 subportadoras activas, con desplazamiento alternado entre bloques.
+- Ecualizacion usando una estimacion de canal DFT/LS regularizada desde pilotos.
 - Calculo Monte Carlo de BER sobre los bits reales de la imagen, comparando QPSK, 16-QAM y 64-QAM en una sola grafica.
 - Calculo empirico de CCDF de PAPR para QPSK, 16-QAM y 64-QAM usando la imagen cargada.
 - Intervalos de confianza al 95% en la curva BER.
@@ -100,21 +100,21 @@ La cadena principal esta en `controller/simulation_mgr.py`.
 3. Se aplica scrambling por XOR usando una semilla fija.
 4. Los bits se mapean a simbolos complejos segun las constelaciones LTE.
 5. Los simbolos se agrupan en subportadoras OFDM centradas alrededor de DC.
-6. Se insertan pilotos QPSK conocidos cada 6 subportadoras activas.
+6. Se insertan pilotos QPSK conocidos cada 6 subportadoras activas, alternando el desplazamiento entre bloques.
 7. Se aplica IFFT para pasar al dominio temporal.
 8. Se inserta prefijo ciclico por bloque OFDM.
 9. La senal pasa por el canal Rayleigh multipath y se agrega ruido AWGN.
 10. En recepcion se retira el prefijo ciclico.
 11. Se aplica FFT para recuperar las subportadoras.
-12. Se estima el canal en los pilotos y se interpola sobre todas las subportadoras.
+12. Se estima el canal con los pilotos mediante un ajuste DFT/LS regularizado y se reconstruye `H[k]`.
 13. Se ecualizan las subportadoras de datos con el canal estimado.
 14. Se demapean simbolos a bits.
 15. Se revierte el scrambling.
 16. Se calcula BER y se reconstruye la imagen recibida.
 
-Para la curva BER Monte Carlo no se generan bits aleatorios como carga util. Cada corrida parte de la misma imagen cargada y repite la transmision completa con nuevas realizaciones de ruido/canal y scrambling de la imagen para QPSK, 16-QAM y 64-QAM. El resumen de BER muestra cuantas corridas por punto fueron necesarias, el ancho de banda, subportadoras activas, CP, perfil ITU Pedestrian A, caminos multipath y bloques OFDM por corrida para cada modulacion. En PAPR no se usa Monte Carlo: se calcula una CCDF empirica por modulacion sobre los bloques OFDM generados desde la imagen cargada. Como PAPR se mide antes del CP y antes del canal, el resumen solo reporta ancho de banda, subportadoras activas, bloques evaluados y `CP/canal: no aplican`.
+Para la curva BER Monte Carlo no se generan bits aleatorios como carga util. Cada corrida parte de la misma imagen cargada y repite la transmision completa con nuevas realizaciones de ruido/canal y scrambling de la imagen para QPSK, 16-QAM y 64-QAM. El resumen de BER muestra cuantas corridas por punto fueron necesarias, el ancho de banda, subportadoras activas, CP, perfil de canal activo, caminos multipath y bloques OFDM por corrida para cada modulacion. En PAPR no se usa Monte Carlo: se calcula una CCDF empirica por modulacion sobre los bloques OFDM generados desde la imagen cargada. Como PAPR se mide antes del CP y antes del canal, el resumen solo reporta ancho de banda, subportadoras activas, bloques evaluados y `CP/canal: no aplican`.
 
-La transmision manual de imagen usa una nueva realizacion aleatoria de canal y ruido cada vez que se pulsa el boton. Para pruebas automatizadas, `run_image_transmission` acepta `rng_seed`, lo que permite fijar la realizacion y obtener resultados reproducibles.
+La transmision manual de imagen usa por defecto una semilla fija (`image_tx_seed = 2024`) para que repetir la misma configuracion produzca la misma realizacion de canal y ruido. Esto facilita comparar visualmente cambios de SNR, modulacion, CP o numero de caminos. Para pruebas automatizadas, `run_image_transmission` tambien acepta `rng_seed`, lo que permite sobrescribir esa realizacion reproducible.
 
 El numero de simbolos mostrado depende de la modulacion: QPSK agrupa 2 bits por simbolo, 16-QAM agrupa 4 y 64-QAM agrupa 6. Si la cantidad de bits no calza exactamente, el modulador agrega padding al final antes de generar los simbolos. El numero de bloques OFDM indica cuantas IFFT/bloques temporales fueron necesarios para transportar esos simbolos despues de reservar las subportadoras piloto.
 
@@ -144,6 +144,7 @@ El prefijo ciclico normal usa un primer simbolo mas largo por slot y seis simbol
 - `core/channel.py`: canal AWGN y Rayleigh multipath con perfiles ITU discretizados.
 - `tests/test_core.py`: pruebas de parametros, constelaciones, OFDM y smoke test del controlador.
 - `PAPR.md`: explicacion tecnica del calculo de PAPR y CCDF.
+- `MEJORA_ESTIMACION_CANAL.md`: cambio aplicado a pilotos y estimacion de canal para observar mejor el efecto del CP.
 - `FUENTES.md`: fuentes 3GPP/ETSI de los parametros LTE usados.
 - `FLUJO_IMAGEN.md`: recorrido completo de la imagen por la cadena Tx/canal/Rx.
 - `AUDITORIA_FINAL.md`: revision final de coherencia tecnica y limitaciones del simulador.
@@ -155,9 +156,10 @@ El prefijo ciclico normal usa un primer simbolo mas largo por slot y seis simbol
 - Subportadoras OFDM distribuidas alrededor de DC, dejando DC vacia.
 - Prefijo ciclico normal variable por simbolo de slot.
 - FFT de 15 MHz corregida a 1536.
-- Canal Rayleigh multipath con perfil `ITU Pedestrian A` por defecto, discretizado con `Fs = NFFT * Delta_f` y potencia media del PDP normalizada.
-- Slider de caminos alineado al perfil activo: con `ITU Pedestrian A`, selecciona un slice de 1 a 4 caminos y la interfaz muestra retardos, ganancias, muestras discretas y margen de CP.
-- Pilotos QPSK deterministas cada 6 subportadoras activas y estimacion/interpolacion de canal en recepcion.
+- Perfil por defecto `Didactico CP`, no ITU, con un eco a `12 us` para mostrar la diferencia entre CP normal y extendido.
+- Perfiles ITU Rayleigh Pedestrian/Vehicular disponibles en `core/channel.py`, discretizados con `Fs = NFFT * Delta_f` y potencia media del PDP normalizada.
+- Slider de caminos alineado al perfil activo: con `Didactico CP`, selecciona 1 camino directo o 2 caminos con eco didactico; la interfaz muestra retardos, ganancias, muestras discretas y margen de CP.
+- Pilotos QPSK deterministas cada 6 subportadoras activas, con patron escalonado 0/3 entre bloques y estimacion DFT/LS regularizada. Esta aproximacion conserva una separacion base tipo CRS y evita que la estimacion de canal tape el efecto didactico del CP.
 - Aviso de margen CP/retardo para detectar posibles condiciones de ISI.
 - Curva BER multi-modulacion con Monte Carlo sobre la imagen cargada e intervalos de confianza al 95%.
 - PAPR sobremuestreado con `L=4` y documentacion tecnica en `PAPR.md`.

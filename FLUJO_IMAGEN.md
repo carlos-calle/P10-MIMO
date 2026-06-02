@@ -260,9 +260,8 @@ Archivo: `core/ofdm_ops.py`
 Funcion: `modulate_ofdm_with_pilots`
 
 ```python
-pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing)
-data_mask = ~pilot_mask
-data_per_block = int(np.sum(data_mask))
+first_pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing, 0, pilot_staggered)
+data_per_block = nc - int(np.sum(first_pilot_mask))
 ```
 
 La mascara de pilotos se define asi:
@@ -271,7 +270,8 @@ Archivo: `core/ofdm_ops.py`
 Funcion: `pilot_subcarrier_mask`
 
 ```python
-return (np.arange(nc) % pilot_spacing) == 0
+offset = _pilot_offset(block_idx, pilot_spacing, staggered)
+return ((np.arange(nc) - offset) % pilot_spacing) == 0
 ```
 
 Y los parametros de pilotos estan en:
@@ -279,7 +279,10 @@ Y los parametros de pilotos estan en:
 Archivo: `core/config.py`
 
 ```python
-PILOT_SPACING_SC = 6
+PILOT_SPACING_SC = LTE_CRS_REFERENCE_SPACING_SC
+PILOT_STAGGER_OFFSET_SC = PILOT_SPACING_SC // 2
+PILOT_STAGGER_ENABLED = True
+CHANNEL_ESTIMATION_RIDGE = 1e-2
 PILOT_SEED = 36_211
 ```
 
@@ -287,8 +290,11 @@ Luego se arma la grilla activa:
 
 ```python
 active_grid = np.zeros((num_blocks, nc), dtype=np.complex128)
-active_grid[:, pilot_mask] = pilot_symbol_grid(num_blocks, int(np.sum(pilot_mask)))
-active_grid[:, data_mask] = data_grid
+pilots = pilot_symbol_grid(num_blocks, int(pilot_counts[0]), pilot_seed)
+for block_idx in range(num_blocks):
+    pilot_mask = pilot_masks[block_idx]
+    active_grid[block_idx, pilot_mask] = pilots[block_idx]
+    active_grid[block_idx, ~pilot_mask] = data_grid[block_idx]
 ```
 
 Es decir:
@@ -397,9 +403,11 @@ El canal hace dos cosas:
 1. Convoluciona la senal con una respuesta impulsiva multipath `h`.
 2. Agrega ruido blanco gaussiano complejo segun la SNR.
 
-En la transmision manual, `rng` se crea sin semilla fija, por lo que cada click
-genera una nueva realizacion de canal y ruido. Para pruebas o demostraciones
-reproducibles, `run_image_transmission` permite pasar `rng_seed`.
+En la transmision manual, `rng` usa por defecto la semilla fija
+`image_tx_seed = 2024`, definida en `OFDMSimulationManager`. Asi, repetir la
+misma configuracion genera la misma realizacion de canal y ruido, lo que facilita
+comparar visualmente cambios de parametros. Para pruebas especificas,
+`run_image_transmission` permite pasar `rng_seed` y sobrescribir esa semilla.
 
 La respuesta `h` se genera en:
 
@@ -414,10 +422,12 @@ for delay, power, coeff in zip(sample_delays, power_linear, fading):
 return h
 ```
 
-El simulador usa por defecto el perfil `ITU Pedestrian A` definido en
-`core/channel.py`, portado desde `practica1/itu_profiles.py`.
-El slider de la interfaz selecciona un slice inicial del perfil: con valor `N`
-se usan los primeros `N` caminos del perfil.
+El simulador usa por defecto el perfil `Didactico CP`, definido en
+`core/channel.py`. Este perfil no es ITU: se agrego para mostrar de forma clara
+el efecto del prefijo ciclico, con un camino directo y un eco a `12 us`.
+Tambien quedan disponibles los perfiles ITU Pedestrian/Vehicular para pruebas
+mas realistas. El slider de la interfaz selecciona un slice inicial del perfil:
+con valor `N` se usan los primeros `N` caminos del perfil.
 
 La parte importante para OFDM es que los retardos fisicos del perfil se convierten
 a muestras usando:
@@ -428,8 +438,8 @@ delay_samples = round(delay_seconds * Fs)
 ```
 
 Por ejemplo, con 10 MHz LTE se usa `NFFT = 1024` y `Delta_f = 15 kHz`,
-por lo que `Fs = 15.36 MHz`. En `Pedestrian A`, el retardo de `0.41 us`
-cae alrededor de `6` muestras. Si varios caminos caen en la misma muestra, sus coeficientes
+por lo que `Fs = 15.36 MHz`. En `Didactico CP`, el eco de `12 us` cae alrededor
+de `184` muestras. Si varios caminos caen en la misma muestra, sus coeficientes
 complejos se suman en ese tap discreto.
 
 La potencia del PDP se normaliza en promedio, no por realizacion instantanea.
@@ -444,8 +454,8 @@ margen = CP_minimo - retardo_maximo
 ```
 
 Si el margen es negativo, la interfaz lo marca como una condicion con ISI
-esperada. Con `ITU Pedestrian A` el margen es positivo en las numerologias LTE
-incluidas.
+esperada. Con `Didactico CP`, el CP normal queda corto y el CP extendido si
+cubre el eco en las numerologias LTE incluidas.
 
 ## 13. Recepcion: quitar prefijo ciclico
 
@@ -475,6 +485,7 @@ rx_symbols_equalized, _ = ofdm_ops.demodulate_ofdm_with_pilots(
     rx_signal_no_cp,
     n_fft,
     nc,
+    max_channel_taps=len(h_used),
 )
 ```
 
@@ -487,32 +498,31 @@ Primero se aplica FFT y se recupera la grilla activa:
 active_grid = _time_to_active_grid(rx_time_signal, n_fft, nc)
 ```
 
-Luego se separan pilotos y datos:
+Luego se construye la mascara de pilotos por bloque:
 
 ```python
-pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing)
-data_mask = ~pilot_mask
-pilot_indices = np.flatnonzero(pilot_mask)
+pilot_masks = pilot_subcarrier_masks(num_blocks, nc, pilot_spacing, pilot_staggered)
 ```
 
-Se estima el canal en las posiciones piloto:
+Se estima el canal en las posiciones piloto y se promedia en tiempo:
 
 ```python
-pilots = pilot_symbol_grid(active_grid.shape[0], len(pilot_indices), pilot_seed)
-h_pilots = active_grid[:, pilot_mask] / pilots
+known_indices, h_known = _average_pilot_observations(active_grid, pilot_masks, pilots, nc)
 ```
 
-Como solo conocemos el canal en pilotos, se interpola hacia todas las subportadoras:
+Cuando se conoce el soporte temporal del canal simulado, se usa una estimacion
+DFT/LS regularizada:
 
 ```python
-h_est = _interpolate_channel_from_pilots(h_pilots, pilot_indices, nc)
+h_taps = weights @ h_known
+h_active = np.fft.fft(h_time)[active_subcarrier_indices(n_fft, nc)]
 ```
 
 Y se ecualiza:
 
 ```python
 equalized_grid = active_grid / h_est
-return equalized_grid[:, data_mask].reshape(-1), h_est
+return np.concatenate(data_blocks), h_est
 ```
 
 El receptor ya no necesita conocer directamente la respuesta impulsiva real `h` del canal. La estima desde los pilotos recibidos.
@@ -680,7 +690,7 @@ controller/simulation_mgr.py::_calculate_ber_series
 La curva BER usa la imagen cargada como carga util y se calcula para QPSK,
 16-QAM y 64-QAM. En la interfaz se reportan las corridas Monte Carlo usadas por
 punto, los bloques OFDM por corrida de cada modulacion, el ancho de banda, las
-subportadoras activas, el prefijo ciclico, el perfil `ITU Pedestrian A` y el
+subportadoras activas, el prefijo ciclico, el perfil de canal activo y el
 numero de caminos multipath seleccionados.
 
 Curva PAPR:

@@ -1,0 +1,247 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\title{Ridge/LS 02: minimos cuadrados y ecuaciones normales}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Modelo}
+
+Partimos del modelo:
+\[
+    \bm y = A\bm h + \bm n.
+\]
+
+Dimensiones:
+\[
+    A \in \mathbb{C}^{M\times L},
+    \qquad
+    \bm h \in \mathbb{C}^{L},
+    \qquad
+    \bm y \in \mathbb{C}^{M}.
+\]
+
+En el contexto del simulador:
+
+\begin{itemize}
+    \item \(M\) es la cantidad de posiciones piloto conocidas.
+    \item \(L\) es la cantidad de taps temporales que se intentan estimar.
+    \item \(A\) es una matriz parcial de Fourier.
+\end{itemize}
+
+\section{Problema LS}
+
+Queremos encontrar \(\hat{\bm h}\) tal que:
+\[
+    A\hat{\bm h} \approx \bm y.
+\]
+
+El criterio de minimos cuadrados es:
+\[
+    J(\bm h) = \|\bm y - A\bm h\|_2^2.
+\]
+
+La norma al cuadrado se puede escribir como:
+\[
+    J(\bm h)
+    =
+    (\bm y - A\bm h)^H(\bm y - A\bm h).
+\]
+
+\section{Expansion}
+
+Expandiendo:
+\[
+\begin{aligned}
+    J(\bm h)
+    &=
+    \bm y^H\bm y
+    - \bm y^H A\bm h
+    - \bm h^H A^H \bm y
+    + \bm h^H A^H A\bm h.
+\end{aligned}
+\]
+
+Para minimizar, se obtienen las ecuaciones normales:
+\[
+    A^H A\hat{\bm h} = A^H\bm y.
+\]
+
+Si \(A^H A\) es invertible:
+\[
+    \hat{\bm h}_{LS}
+    =
+    (A^H A)^{-1}A^H\bm y.
+\]
+
+\section{La pseudoinversa}
+
+Cuando \(A\) no es cuadrada, la expresion:
+\[
+    (A^H A)^{-1}A^H
+\]
+se interpreta como una pseudoinversa por izquierda, siempre que \(A\) tenga
+columnas linealmente independientes.
+
+Se suele escribir:
+\[
+    A^\dagger = (A^H A)^{-1}A^H.
+\]
+
+Entonces:
+\[
+    \hat{\bm h}_{LS} = A^\dagger \bm y.
+\]
+
+\section{Condicion de invertibilidad}
+
+Para que \(A^H A\) sea invertible, \(A\) debe tener rango columna completo:
+\[
+    \mathrm{rank}(A) = L.
+\]
+
+Esto significa que ninguna columna de \(A\) puede escribirse como combinacion
+lineal de las otras.
+
+Si dos columnas son casi dependientes, la matriz puede ser invertible en teoria,
+pero muy inestable en practica.
+
+\section{Matriz de Gram}
+
+La matriz:
+\[
+    G = A^H A
+\]
+es Hermitiana:
+\[
+    G^H = G.
+\]
+
+Tambien es semidefinida positiva:
+\[
+    \bm x^H G \bm x
+    =
+    \bm x^H A^H A \bm x
+    =
+    \|A\bm x\|_2^2
+    \ge 0.
+\]
+
+Si \(A\) tiene rango columna completo, entonces:
+\[
+    \bm x^H G\bm x > 0
+    \quad
+    \text{para todo }
+    \bm x \ne \bm 0.
+\]
+
+En ese caso, \(G\) es definida positiva e invertible.
+
+\section{Problema del LS puro}
+
+El LS puro puede fallar numericamente cuando:
+
+\begin{itemize}
+    \item \(A^H A\) tiene eigenvalues muy pequenos.
+    \item el numero de pilotos es bajo.
+    \item las columnas de \(A\) estan muy correlacionadas.
+    \item el ruido es significativo.
+\end{itemize}
+
+Si un eigenvalue es muy pequeno, invertirlo equivale a dividir por un numero muy
+pequeno. Eso amplifica ruido.
+
+\section{Regularizacion}
+
+Para evitar ese problema, se modifica el criterio:
+\[
+    J_\lambda(\bm h)
+    =
+    \|\bm y - A\bm h\|_2^2
+    +
+    \lambda\|\bm h\|_2^2.
+\]
+
+El segundo termino penaliza soluciones con energia demasiado grande.
+
+\section{Derivacion de la solucion regularizada}
+
+Expandimos el nuevo costo:
+\[
+    J_\lambda(\bm h)
+    =
+    (\bm y - A\bm h)^H(\bm y - A\bm h)
+    +
+    \lambda \bm h^H\bm h.
+\]
+
+Las ecuaciones normales regularizadas son:
+\[
+    (A^H A + \lambda I)\hat{\bm h}
+    =
+    A^H\bm y.
+\]
+
+Por tanto:
+\[
+    \hat{\bm h}_{ridge}
+    =
+    (A^H A + \lambda I)^{-1}A^H\bm y.
+\]
+
+\section{Interpretacion de \(\lambda\)}
+
+El parametro \(\lambda\) controla el compromiso:
+
+\begin{itemize}
+    \item Si \(\lambda = 0\), se obtiene LS puro.
+    \item Si \(\lambda\) es pequeno, se parece mucho a LS.
+    \item Si \(\lambda\) es grande, se penaliza mucho la energia de \(\bm h\).
+\end{itemize}
+
+En el codigo:
+\[
+    \lambda = 10^{-2}.
+\]
+
+\section{Lectura del operador}
+
+La expresion:
+\[
+    (A^H A + \lambda I)^{-1}A^H
+\]
+puede leerse en tres pasos:
+
+\begin{enumerate}
+    \item \(A^H\bm y\): proyecta las mediciones hacia el espacio de taps.
+    \item \(A^H A + \lambda I\): mide correlaciones entre columnas y agrega estabilidad.
+    \item \((A^H A + \lambda I)^{-1}\): resuelve el sistema regularizado.
+\end{enumerate}
+
+\section{Conclusion}
+
+El operador regularizado es la solucion de un problema de minimos cuadrados con
+penalizacion:
+\[
+    \hat{\bm h}
+    =
+    \arg\min_{\bm h}
+    \left(
+        \|\bm y - A\bm h\|_2^2
+        +
+        \lambda\|\bm h\|_2^2
+    \right).
+\]
+
+Esta es la base matematica de la estimacion de canal usada por el simulador.
+
+\end{document}
+

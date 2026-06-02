@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from controller.simulation_mgr import OFDMSimulationManager
-from core import channel, ofdm_ops, utils
+from core import channel, config, ofdm_ops, utils
 
 
 class CoreSimulationTests(unittest.TestCase):
@@ -85,7 +85,10 @@ class CoreSimulationTests(unittest.TestCase):
 
         self.assertTrue(np.allclose(symbols, recovered[:len(symbols)]))
         self.assertEqual(h_est.shape, (num_blocks, nc))
-        self.assertEqual(int(np.sum(ofdm_ops.pilot_subcarrier_mask(nc))), nc // 6)
+        self.assertEqual(
+            int(np.sum(ofdm_ops.pilot_subcarrier_mask(nc))),
+            nc // config.PILOT_SPACING_SC,
+        )
 
     def test_rayleigh_profile_channel_is_discrete_and_average_normalized(self):
         rng = np.random.default_rng(123)
@@ -127,6 +130,38 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertFalse(report["isi_expected"])
         self.assertEqual(report["margin_samples"], 66)
 
+    def test_didactic_cp_profile_stresses_normal_cp(self):
+        n_fft, _, normal_cp, df = utils.get_ofdm_params(4, 1)
+        _, _, extended_cp, _ = utils.get_ofdm_params(4, 2)
+        sample_rate_hz = n_fft * df
+
+        normal_report = channel.cp_safety_report(
+            2, normal_cp, sample_rate_hz, "Didactico CP"
+        )
+        extended_report = channel.cp_safety_report(
+            2, extended_cp, sample_rate_hz, "Didactico CP"
+        )
+
+        self.assertTrue(normal_report["isi_expected"])
+        self.assertFalse(extended_report["isi_expected"])
+        self.assertLess(normal_report["margin_samples"], 0)
+        self.assertGreaterEqual(extended_report["margin_samples"], 0)
+
+        h_a = channel.generate_rayleigh_channel(
+            2,
+            rng=np.random.default_rng(1),
+            sample_rate_hz=sample_rate_hz,
+            profile_name="Didactico CP",
+        )
+        h_b = channel.generate_rayleigh_channel(
+            2,
+            rng=np.random.default_rng(2),
+            sample_rate_hz=sample_rate_hz,
+            profile_name="Didactico CP",
+        )
+        self.assertTrue(np.array_equal(h_a, h_b))
+        self.assertAlmostEqual(float(np.sum(np.abs(h_a) ** 2)), 1.0)
+
     def test_pilot_grid_is_deterministic_and_not_constant(self):
         pilots_a = ofdm_ops.pilot_symbol_grid(8, 12)
         pilots_b = ofdm_ops.pilot_symbol_grid(8, 12)
@@ -134,6 +169,17 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertTrue(np.array_equal(pilots_a, pilots_b))
         self.assertTrue(np.allclose(np.abs(pilots_a), 1.0))
         self.assertGreater(len(np.unique(pilots_a)), 1)
+
+    def test_pilot_masks_are_staggered(self):
+        _, nc, _, _ = utils.get_ofdm_params(4, 1)
+        first = ofdm_ops.pilot_subcarrier_mask(nc, block_idx=0)
+        second = ofdm_ops.pilot_subcarrier_mask(nc, block_idx=1)
+
+        self.assertEqual(int(np.sum(first)), nc // config.PILOT_SPACING_SC)
+        self.assertEqual(int(np.sum(second)), nc // config.PILOT_SPACING_SC)
+        self.assertFalse(np.array_equal(first, second))
+        self.assertTrue(first[0])
+        self.assertTrue(second[config.PILOT_STAGGER_OFFSET_SC])
 
     def test_manager_smoke(self):
         manager = OFDMSimulationManager()
@@ -156,6 +202,34 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertIn("Símbolos:", result["info"])
         self.assertIn("Bloques OFDM: 250", result["info"])
         self.assertIn("SC activas: 600", result["info"])
+
+    def test_manual_transmission_default_seed_is_reproducible(self):
+        manager = OFDMSimulationManager()
+        manager.img_size = 32
+
+        first = manager.run_image_transmission(
+            "imagenes/cameraman.jpg",
+            4,
+            1,
+            2,
+            15,
+            2,
+        )
+        second = manager.run_image_transmission(
+            "imagenes/cameraman.jpg",
+            4,
+            1,
+            2,
+            15,
+            2,
+        )
+
+        self.assertTrue(first["success"])
+        self.assertTrue(second["success"])
+        self.assertEqual(first["rng_seed"], manager.image_tx_seed)
+        self.assertEqual(second["rng_seed"], manager.image_tx_seed)
+        self.assertEqual(first["ber"], second["ber"])
+        self.assertTrue(np.array_equal(first["rx_image"], second["rx_image"]))
 
     def test_transmission_symbol_count_depends_on_modulation(self):
         manager = OFDMSimulationManager()
@@ -196,7 +270,7 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertIn("bloques/corrida QPSK=9, 16-QAM=5, 64-QAM=3", ber["summary"])
         self.assertIn("BW: 10 MHz (600 SC)", ber["summary"])
         self.assertIn("CP: Normal", ber["summary"])
-        self.assertIn("Canal: ITU Pedestrian A, caminos: 1", ber["summary"])
+        self.assertIn(f"Canal: {channel.DEFAULT_RAYLEIGH_PROFILE}, caminos: 1", ber["summary"])
         for item in ber["series"]:
             self.assertEqual(len(ber["x"]), len(item["y"]))
             self.assertEqual(len(item["y"]), len(item["ci_lower"]))

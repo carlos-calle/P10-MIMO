@@ -1,14 +1,29 @@
-# Entorno virtual
-env/
-venv/
-
-# Archivos de Python
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 
-# Distribución / Paquetes
-dist/
-build/
-*.egg-info/
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Test/cache output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# LaTeX build artifacts
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

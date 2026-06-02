@@ -38,19 +38,21 @@ PAPR empirico.
 - QPSK, 16-QAM y 64-QAM usan constelaciones normalizadas.
 - La estimacion de canal se hace con pilotos conocidos y ecualizacion por
   subportadora.
-- El canal usa un perfil Rayleigh `ITU Pedestrian A` por defecto, discretizado
-  segun `Fs = NFFT * Delta_f`.
-- El slider de caminos selecciona un slice inicial del perfil Pedestrian A.
+- El canal usa por defecto el perfil no ITU `Didactico CP`, con un eco a
+  `12 us` elegido para quedar fuera del CP normal y dentro del CP extendido.
+- Los perfiles ITU Pedestrian/Vehicular siguen disponibles para pruebas mas
+  realistas y se discretizan segun `Fs = NFFT * Delta_f`.
 - El ruido AWGN se referencia a la potencia transmitida, por lo que las
   atenuaciones del canal afectan la SNR recibida.
-- La transmision manual genera una nueva realizacion de canal y ruido por click.
+- La transmision manual usa una semilla fija por defecto para que la misma
+  configuracion produzca la misma realizacion de canal y ruido.
 - El resumen de transmision muestra BER, bits totales de la imagen, simbolos
   modulados, bloques OFDM requeridos y subportadoras activas.
 - La curva BER usa la imagen cargada como carga util y compara QPSK, 16-QAM y
   64-QAM simultaneamente.
 - La BER incluye intervalo de confianza al 95%, corridas Monte Carlo por punto
   y la configuracion fisica usada: ancho de banda, subportadoras activas,
-  prefijo ciclico, perfil ITU Pedestrian A y caminos multipath.
+  prefijo ciclico, perfil de canal activo y caminos multipath.
 - La curva PAPR compara las tres modulaciones y usa sobremuestreo `L=4`.
 - El resumen de PAPR reporta ancho de banda, subportadoras activas y bloques
   OFDM evaluados; CP/canal no aplican porque se mide antes de ambos.
@@ -65,7 +67,9 @@ Estas partes son simplificaciones conscientes y conviene explicarlas como tal:
 - No hay codificacion de canal, interleaving, HARQ ni planificador.
 - No hay tramas/subtramas LTE completas ni canales fisicos PDCCH/PDSCH reales.
 - Los pilotos son una simplificacion inspirada en CRS: se colocan en todos los
-  simbolos OFDM con separacion de 6 subportadoras.
+  simbolos OFDM. La separacion CRS LTE de referencia es 6 subportadoras, pero
+  el simulador usa 2 para que la estimacion de canal no tape el efecto
+  didactico del CP.
 - El receptor asume sincronizacion perfecta.
 - No se modela CFO, error de temporizacion, ruido de fase ni no linealidad RF.
 - El canal Rayleigh es estatico durante cada transmision/corrida; no incluye
@@ -81,9 +85,9 @@ Estas partes son simplificaciones conscientes y conviene explicarlas como tal:
   los bits reales de la imagen.
 - **PAPR Monte Carlo:** PAPR ya no usa Monte Carlo porque se busca la CCDF
   empirica de la imagen cargada.
-- **Determinismo involuntario:** la transmision manual ya no fija la semilla del
-  canal. Repetir el boton puede producir resultados distintos, como corresponde
-  a nuevas realizaciones de ruido/canal.
+- **Reproducibilidad visual:** la transmision manual fija la semilla del canal y
+  ruido por defecto. Esto permite repetir una configuracion y observar mejor el
+  efecto de cambiar SNR, modulacion, CP o caminos.
 - **Interfaz bloqueada:** BER y PAPR se ejecutan fuera del hilo principal de la
   GUI.
 
@@ -113,4 +117,4 @@ probar visualmente:
 La version actual esta en condiciones presentables para una practica academica
 de LTE-OFDM. Lo mas importante para defenderla es explicar que el proyecto no
 pretende ser una pila LTE completa, sino un simulador de capa fisica OFDM con
-parametros LTE, canal Rayleigh Pedestrian A, pilotos, BER y PAPR.
+parametros LTE, canal multipath didactico/ITU, pilotos, BER y PAPR.

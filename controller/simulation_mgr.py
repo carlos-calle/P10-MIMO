@@ -46,6 +46,7 @@ class OFDMSimulationManager:
         self.mc_abs_ci_target = 2e-4
         self.mc_rel_ci_target = 0.25
         self.mc_seed = 2024
+        self.image_tx_seed = 2024
         self.papr_oversampling = 4
 
     def _selected_config_summary(self, bw_idx, profile_idx, num_paths=None):
@@ -107,8 +108,9 @@ class OFDMSimulationManager:
             ofdm_time_signal, num_blocks = ofdm_ops.modulate_ofdm_with_pilots(tx_symbols, n_fft, nc)
             tx_signal_cp, cp_used = ofdm_ops.add_cyclic_prefix(ofdm_time_signal, num_blocks, n_fft, cp_lengths)
             
-            rng = np.random.default_rng(rng_seed)
-            rx_signal_cp, _ = channel.apply_rayleigh(
+            rng_seed_used = self.image_tx_seed if rng_seed is None else rng_seed
+            rng = np.random.default_rng(rng_seed_used)
+            rx_signal_cp, h_used = channel.apply_rayleigh(
                 tx_signal_cp,
                 snr_db,
                 num_taps=num_paths,
@@ -117,7 +119,12 @@ class OFDMSimulationManager:
             )
             
             rx_signal_no_cp = ofdm_ops.remove_cyclic_prefix(rx_signal_cp, n_fft, cp_used)
-            rx_symbols_equalized, _ = ofdm_ops.demodulate_ofdm_with_pilots(rx_signal_no_cp, n_fft, nc)
+            rx_symbols_equalized, _ = ofdm_ops.demodulate_ofdm_with_pilots(
+                rx_signal_no_cp,
+                n_fft,
+                nc,
+                max_channel_taps=len(h_used),
+            )
             rx_bits_scrambled = utils.demap_symbols_to_bits(rx_symbols_equalized, mod_type)
             
             valid_len = len(tx_bits_raw)
@@ -138,6 +145,7 @@ class OFDMSimulationManager:
                 "num_symbols": num_symbols,
                 "ofdm_blocks": num_blocks,
                 "channel_report": channel_report,
+                "rng_seed": rng_seed_used,
                 "info": f"BER: {ber:.5f} | Bits: {total_bits} | Símbolos: {num_symbols} | Bloques OFDM: {num_blocks} | SC activas: {nc}"
             }
 
@@ -155,9 +163,24 @@ class OFDMSimulationManager:
         tx_cp, cp_used = ofdm_ops.add_cyclic_prefix(ofdm_sig, n_blks, n_fft, cp_lengths)
         return tx_cp, cp_used, n_fft, nc, n_fft * df
 
-    def _receive_bits(self, rx_cp, n_fft, nc, cp_used, mod_type, valid_len, scramble_seed):
+    def _receive_bits(
+        self,
+        rx_cp,
+        n_fft,
+        nc,
+        cp_used,
+        mod_type,
+        valid_len,
+        scramble_seed,
+        max_channel_taps=None,
+    ):
         rx_no_cp = ofdm_ops.remove_cyclic_prefix(rx_cp, n_fft, cp_used)
-        rx_eq, _ = ofdm_ops.demodulate_ofdm_with_pilots(rx_no_cp, n_fft, nc)
+        rx_eq, _ = ofdm_ops.demodulate_ofdm_with_pilots(
+            rx_no_cp,
+            n_fft,
+            nc,
+            max_channel_taps=max_channel_taps,
+        )
         rx_bits_scrambled = utils.demap_symbols_to_bits(rx_eq, mod_type)[:valid_len]
         return utils.apply_scrambling(rx_bits_scrambled, seed=scramble_seed)
 
@@ -192,7 +215,16 @@ class OFDMSimulationManager:
                     continue
 
                 rx_cp, h = channel.apply_rayleigh(tx_cp, snr, h=h_run, rng=rng)
-                rx_bits = self._receive_bits(rx_cp, n_fft, nc, cp_used, mod_type, valid_len, scramble_seed)
+                rx_bits = self._receive_bits(
+                    rx_cp,
+                    n_fft,
+                    nc,
+                    cp_used,
+                    mod_type,
+                    valid_len,
+                    scramble_seed,
+                    max_channel_taps=len(h_run),
+                )
                 errors = int(np.sum(tx_bits_raw != rx_bits[:valid_len]))
                 run_ber = errors / valid_len
 
@@ -273,20 +305,27 @@ class OFDMSimulationManager:
     def _calculate_papr_values(self, symbols, n_fft, nc):
         symbols = np.asarray(symbols, dtype=np.complex128)
         num_symbols = len(symbols)
-        pilot_mask = ofdm_ops.pilot_subcarrier_mask(nc)
-        data_mask = ~pilot_mask
-        data_per_block = int(np.sum(data_mask))
+        first_pilot_mask = ofdm_ops.pilot_subcarrier_mask(nc)
+        data_per_block = nc - int(np.sum(first_pilot_mask))
         num_blocks = int(np.ceil(num_symbols / data_per_block)) if num_symbols else 0
         if num_blocks == 0:
             return np.array([], dtype=float)
+
+        pilot_masks = ofdm_ops.pilot_subcarrier_masks(num_blocks, nc)
+        pilot_counts = np.sum(pilot_masks, axis=1)
+        if not np.all(pilot_counts == pilot_counts[0]):
+            raise ValueError("El patron de pilotos debe mantener el mismo overhead por bloque")
 
         padded = np.zeros(num_blocks * data_per_block, dtype=np.complex128)
         padded[:num_symbols] = symbols
         data_grid = padded.reshape(num_blocks, data_per_block)
 
         active_grid = np.zeros((num_blocks, nc), dtype=np.complex128)
-        active_grid[:, pilot_mask] = ofdm_ops.pilot_symbol_grid(num_blocks, int(np.sum(pilot_mask)))
-        active_grid[:, data_mask] = data_grid
+        pilots = ofdm_ops.pilot_symbol_grid(num_blocks, int(pilot_counts[0]))
+        for block_idx in range(num_blocks):
+            pilot_mask = pilot_masks[block_idx]
+            active_grid[block_idx, pilot_mask] = pilots[block_idx]
+            active_grid[block_idx, ~pilot_mask] = data_grid[block_idx]
 
         os_fft = n_fft * self.papr_oversampling
         freq_grid = np.zeros((num_blocks, os_fft), dtype=np.complex128)

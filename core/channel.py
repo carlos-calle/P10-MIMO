@@ -1,9 +1,16 @@
 import numpy as np
 
 
-DEFAULT_RAYLEIGH_PROFILE = "ITU Pedestrian A"
+DEFAULT_RAYLEIGH_PROFILE = "ITU Vehicular B"
 
-ITU_RAYLEIGH_PROFILES = {
+CHANNEL_PROFILES = {
+    "Didactico CP": {
+        # Perfil no ITU: retardo elegido para quedar fuera del CP normal
+        # (~4.7 us) y dentro del CP extendido (~16.7 us) con Delta_f=15 kHz.
+        "delays_s": np.array([0.0, 12.0]) * 1e-6,
+        "gains_db": np.array([0.0, -8.0]),
+        "deterministic_coefficients": np.array([1.0 + 0j, 0.4 + 0j]),
+    },
     "ITU Pedestrian A": {
         "delays_s": np.array([0.0, 0.110, 0.190, 0.410]) * 1e-6,
         "gains_db": np.array([0.0, -9.7, -19.2, -22.8]),
@@ -22,6 +29,10 @@ ITU_RAYLEIGH_PROFILES = {
     },
 }
 
+# Alias historico: se conserva para compatibilidad con codigo/documentacion
+# existente que aun consulte los perfiles ITU por este nombre.
+ITU_RAYLEIGH_PROFILES = CHANNEL_PROFILES
+
 
 def _as_rng(rng=None):
     return np.random.default_rng() if rng is None else rng
@@ -29,10 +40,10 @@ def _as_rng(rng=None):
 
 def get_rayleigh_profile(profile_name=DEFAULT_RAYLEIGH_PROFILE):
     """Devuelve una copia del perfil ITU usado para construir el canal."""
-    if profile_name not in ITU_RAYLEIGH_PROFILES:
+    if profile_name not in CHANNEL_PROFILES:
         raise ValueError(f"Perfil Rayleigh desconocido: {profile_name}")
 
-    profile = ITU_RAYLEIGH_PROFILES[profile_name]
+    profile = CHANNEL_PROFILES[profile_name]
     return {
         "delays_s": profile["delays_s"].copy(),
         "gains_db": profile["gains_db"].copy(),
@@ -121,11 +132,21 @@ def _generate_profile_rayleigh(num_taps, sample_rate_hz, profile_name, rng):
     path_count = profile["active_paths"]
     delays_s = profile["delays_s"]
     gains_db = profile["gains_db"]
+    profile_config = CHANNEL_PROFILES[profile_name]
 
-    power_linear = _normalize_power_profile(10 ** (gains_db / 10.0))
-    fading = (
-        rng.standard_normal(path_count) + 1j * rng.standard_normal(path_count)
-    ) / np.sqrt(2)
+    if "deterministic_coefficients" in profile_config:
+        coeffs = np.asarray(
+            profile_config["deterministic_coefficients"][:path_count],
+            dtype=np.complex128,
+        )
+        coeff_power = np.sum(np.abs(coeffs) ** 2)
+        fading = coeffs / np.sqrt(coeff_power) if coeff_power > 0 else coeffs
+        power_linear = np.ones(path_count)
+    else:
+        power_linear = _normalize_power_profile(10 ** (gains_db / 10.0))
+        fading = (
+            rng.standard_normal(path_count) + 1j * rng.standard_normal(path_count)
+        ) / np.sqrt(2)
 
     sample_delays = profile["sample_delays"]
     h = np.zeros(int(np.max(sample_delays)) + 1, dtype=np.complex128)

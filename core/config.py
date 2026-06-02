@@ -40,8 +40,11 @@ MODULATION_BITS = {
     3: 6,
 }
 
-# Patron simplificado inspirado en los CRS de LTE: pilotos separados 6
-# subportadoras en frecuencia. La secuencia piloto es QPSK deterministica y de
-# potencia unitaria para evitar una peineta de pilotos constantes.
-PILOT_SPACING_SC = 6
+# Referencia CRS LTE en frecuencia para un puerto de antena: 6 subportadoras.
+# Se alterna medio espaciamiento entre bloques para densificar la malla efectiva.
+LTE_CRS_REFERENCE_SPACING_SC = 6
+PILOT_SPACING_SC = LTE_CRS_REFERENCE_SPACING_SC
+PILOT_STAGGER_OFFSET_SC = PILOT_SPACING_SC // 2
+PILOT_STAGGER_ENABLED = True
+CHANNEL_ESTIMATION_RIDGE = 1e-2
 PILOT_SEED = 36_211

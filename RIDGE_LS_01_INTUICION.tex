@@ -1,0 +1,213 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\title{Ridge/LS 01: intuicion del operador regularizado}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Objetivo}
+
+La expresion
+\[
+    (A^H A + \lambda I)^{-1}A^H
+\]
+aparece en el programa al estimar el canal a partir de las portadoras piloto.
+Su funcion es construir un operador que toma mediciones conocidas del canal en
+pilotos y devuelve una estimacion de los taps temporales del canal.
+
+En el codigo, esta idea aparece en \texttt{core/ofdm\_ops.py}:
+\[
+    \texttt{weights}
+    =
+    (A^H A + \lambda I)^{-1}A^H
+\]
+y luego:
+\[
+    \hat{\bm h} = \texttt{weights}\,\bm y.
+\]
+
+\section{Que representan las letras}
+
+El modelo simplificado es:
+\[
+    \bm y = A\bm h + \bm n.
+\]
+
+Aqui:
+
+\begin{itemize}
+    \item \(\bm y\) contiene las estimaciones de canal en las subportadoras piloto.
+    \item \(A\) es una matriz que relaciona los taps temporales del canal con su respuesta en frecuencia en pilotos.
+    \item \(\bm h\) contiene los taps temporales del canal.
+    \item \(\bm n\) representa ruido y errores de medicion.
+\end{itemize}
+
+En el simulador, \(A\) se construye con exponenciales complejas:
+\[
+    A[m,\ell] = e^{-j2\pi k_m \ell/N}.
+\]
+
+Esto viene directamente de la DFT: un canal en tiempo produce una respuesta en
+frecuencia.
+
+\section{La pregunta que se intenta responder}
+
+El receptor conoce \(\bm y\) y conoce \(A\). Quiere encontrar \(\bm h\).
+
+Si no hubiera ruido y todo fuera perfectamente invertible, se podria pensar en:
+\[
+    \bm h = A^{-1}\bm y.
+\]
+
+Pero normalmente esto no se puede hacer directamente porque:
+
+\begin{itemize}
+    \item \(A\) no suele ser cuadrada.
+    \item puede haber mas mediciones que incognitas, o menos.
+    \item hay ruido.
+    \item algunas columnas de \(A\) pueden parecerse demasiado entre si.
+\end{itemize}
+
+Entonces no buscamos una inversa exacta, sino una solucion que ajuste lo mejor
+posible las mediciones.
+
+\section{La idea de ajuste}
+
+Queremos que:
+\[
+    A\hat{\bm h} \approx \bm y.
+\]
+
+Es decir, si usamos los taps estimados \(\hat{\bm h}\), deberiamos reconstruir
+lo que observamos en los pilotos.
+
+La diferencia:
+\[
+    \bm y - A\hat{\bm h}
+\]
+es el error de ajuste.
+
+El metodo LS, o minimos cuadrados, busca que ese error sea pequeno.
+
+\section{Por que aparece \(A^H\)}
+
+La matriz \(A\) es compleja. Por eso no usamos solamente transpuesta \(A^T\),
+sino transpuesta conjugada:
+\[
+    A^H.
+\]
+
+Si:
+\[
+    A =
+    \begin{bmatrix}
+        1 & j\\
+        2 & 1-j
+    \end{bmatrix},
+\]
+entonces:
+\[
+    A^H =
+    \begin{bmatrix}
+        1 & 2\\
+        -j & 1+j
+    \end{bmatrix}.
+\]
+
+En sistemas complejos, \(A^H\) es la herramienta natural para formar productos
+internos, energias y ecuaciones normales.
+
+\section{Que es \(A^H A\)}
+
+La matriz:
+\[
+    A^H A
+\]
+se llama matriz de Gram.
+
+Intuitivamente mide cuanto se parecen las columnas de \(A\) entre si.
+
+\begin{itemize}
+    \item En la diagonal aparecen las energias de las columnas.
+    \item Fuera de la diagonal aparecen correlaciones entre columnas.
+\end{itemize}
+
+Si las columnas son muy diferentes e independientes, \(A^H A\) se comporta
+bien. Si algunas columnas se parecen demasiado, \(A^H A\) puede volverse dificil
+de invertir.
+
+\section{Para que sirve \(\lambda I\)}
+
+La parte:
+\[
+    \lambda I
+\]
+es una regularizacion.
+
+La matriz identidad \(I\) tiene unos en la diagonal:
+\[
+    I =
+    \begin{bmatrix}
+        1 & 0 & 0\\
+        0 & 1 & 0\\
+        0 & 0 & 1
+    \end{bmatrix}.
+\]
+
+Multiplicar por \(\lambda\) agrega \(\lambda\) a la diagonal de \(A^H A\):
+\[
+    A^H A + \lambda I.
+\]
+
+Esto hace que la matriz sea mas estable para invertir.
+
+\section{Interpretacion sencilla}
+
+La expresion:
+\[
+    (A^H A + \lambda I)^{-1}A^H
+\]
+es una especie de inversa corregida de \(A\).
+
+No intenta invertir \(A\) de forma perfecta. Hace algo mas prudente:
+
+\begin{itemize}
+    \item ajusta las mediciones de pilotos;
+    \item evita soluciones exageradas;
+    \item reduce sensibilidad al ruido;
+    \item permite estimar los taps del canal.
+\end{itemize}
+
+\section{Conexion con el programa}
+
+En el simulador:
+
+\[
+    \hat{\bm h}
+    =
+    (A^H A + \lambda I)^{-1}A^H\bm y.
+\]
+
+Luego se calcula:
+\[
+    \hat{\bm H} = \mathrm{FFT}\{\hat{\bm h}\}.
+\]
+
+Finalmente se ecualiza:
+\[
+    \hat{X}[k] = \frac{Y[k]}{\hat{H}[k]}.
+\]
+
+Por tanto, el operador estudiado no ecualiza directamente. Primero estima el
+canal en tiempo. Despues el programa obtiene la respuesta en frecuencia y recien
+ahi ecualiza.
+
+\end{document}
