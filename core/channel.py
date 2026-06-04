@@ -1,7 +1,7 @@
 import numpy as np
 
 
-DEFAULT_RAYLEIGH_PROFILE = "ITU Pedestrian A"
+DEFAULT_RAYLEIGH_PROFILE = "ITU Vehicular B"
 
 CHANNEL_PROFILES = {
     "Didactico CP": {

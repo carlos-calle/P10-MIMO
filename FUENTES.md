@@ -46,7 +46,7 @@ Estas partes son elecciones de modelado para mantener el simulador didactico y l
 - Transmitir una imagen en escala de grises como flujo de bits.
 - Redimensionar la imagen a `250x250`.
 - Usar scrambling XOR con semilla local.
-- Usar `ITU Pedestrian A` como perfil activo por defecto.
+- Usar `ITU Vehicular B` como perfil activo por defecto.
 - Mantener `Didactico CP` como perfil no ITU de prueba: es un canal determinista de dos caminos con eco a `12 us`, creado para mostrar el efecto del CP normal frente al CP extendido.
 - Mantener perfiles ITU Pedestrian/Vehicular discretizados como alternativas de canal realistas.
 - Asumir sincronizacion perfecta.
