@@ -193,3 +193,105 @@ def apply_rayleigh(
     signal_convolved = np.convolve(signal, h, mode="full")[:len(signal)]
     signal_noisy = apply_awgn(signal_convolved, snr_db, rng=rng, reference_power=tx_power)
     return signal_noisy, h
+
+
+def _pad_mimo_channels(channel_links):
+    max_len = max(len(link) for row in channel_links for link in row)
+    n_rx = len(channel_links)
+    n_tx = len(channel_links[0])
+    h = np.zeros((n_rx, n_tx, max_len), dtype=np.complex128)
+    for rx_idx, row in enumerate(channel_links):
+        for tx_idx, link in enumerate(row):
+            h[rx_idx, tx_idx, : len(link)] = link
+    return h
+
+
+def generate_mimo_rayleigh_channel(
+    n_tx=2,
+    n_rx=2,
+    num_taps=1,
+    rng=None,
+    sample_rate_hz=None,
+    profile_name=DEFAULT_RAYLEIGH_PROFILE,
+):
+    """
+    Genera una matriz de respuestas impulsivas MIMO.
+
+    La forma devuelta es `(n_rx, n_tx, n_taps_discretos)`. Cada enlace
+    TX-RX usa una realizacion Rayleigh independiente sobre el mismo perfil.
+    """
+    if n_tx <= 0 or n_rx <= 0:
+        raise ValueError("El numero de antenas MIMO debe ser positivo")
+    if num_taps <= 0:
+        raise ValueError("El numero de caminos debe ser positivo")
+    if sample_rate_hz is None:
+        raise ValueError("sample_rate_hz es obligatorio para discretizar el canal")
+
+    rng = _as_rng(rng)
+    channel_links = [
+        [
+            _generate_profile_rayleigh(num_taps, sample_rate_hz, profile_name, rng)
+            for _ in range(n_tx)
+        ]
+        for _ in range(n_rx)
+    ]
+    return _pad_mimo_channels(channel_links)
+
+
+def apply_mimo_rayleigh(
+    tx_signals,
+    snr_db,
+    num_taps=1,
+    h=None,
+    rng=None,
+    sample_rate_hz=None,
+    profile_name=DEFAULT_RAYLEIGH_PROFILE,
+    n_rx=2,
+):
+    """
+    Aplica canal MIMO multipath y AWGN por antena RX.
+
+    `tx_signals` debe tener forma `(n_tx, n_muestras)`. Retorna la senal
+    recibida con forma `(n_rx, n_muestras)` y la matriz de canal usada.
+    """
+    tx_signals = np.asarray(tx_signals, dtype=np.complex128)
+    if tx_signals.ndim == 1:
+        tx_signals = tx_signals[None, :]
+    if tx_signals.ndim != 2:
+        raise ValueError("tx_signals debe ser una matriz n_tx x muestras")
+
+    rng = _as_rng(rng)
+    n_tx, n_samples = tx_signals.shape
+    if h is None:
+        h = generate_mimo_rayleigh_channel(
+            n_tx=n_tx,
+            n_rx=n_rx,
+            num_taps=num_taps,
+            rng=rng,
+            sample_rate_hz=sample_rate_hz,
+            profile_name=profile_name,
+        )
+    else:
+        h = np.asarray(h, dtype=np.complex128)
+
+    if h.ndim != 3 or h.shape[1] != n_tx:
+        raise ValueError("La matriz de canal MIMO no coincide con tx_signals")
+
+    n_rx = h.shape[0]
+    rx_signals = np.zeros((n_rx, n_samples), dtype=np.complex128)
+    for rx_idx in range(n_rx):
+        for tx_idx in range(n_tx):
+            rx_signals[rx_idx] += np.convolve(
+                tx_signals[tx_idx],
+                h[rx_idx, tx_idx],
+                mode="full",
+            )[:n_samples]
+
+    tx_power = float(np.mean(np.sum(np.abs(tx_signals) ** 2, axis=0)))
+    rx_noisy = np.vstack(
+        [
+            apply_awgn(rx_signals[rx_idx], snr_db, rng=rng, reference_power=tx_power)
+            for rx_idx in range(n_rx)
+        ]
+    )
+    return rx_noisy, h

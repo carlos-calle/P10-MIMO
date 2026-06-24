@@ -40,11 +40,19 @@ MODULATION_BITS = {
     3: 6,
 }
 
-# Referencia CRS LTE en frecuencia para un puerto de antena: 6 subportadoras.
-# Se alterna medio espaciamiento entre bloques para densificar la malla efectiva.
-LTE_CRS_REFERENCE_SPACING_SC = 6
-PILOT_SPACING_SC = LTE_CRS_REFERENCE_SPACING_SC
-PILOT_STAGGER_OFFSET_SC = PILOT_SPACING_SC // 2
-PILOT_STAGGER_ENABLED = True
-CHANNEL_ESTIMATION_RIDGE = 1e-2
-PILOT_SEED = 36_211
+MIMO_MODES = {
+    1: {"name": "SISO 1x1", "n_tx": 1, "n_rx": 1, "layers": 1, "precoder": "identity"},
+    2: {"name": "SM 2x2", "n_tx": 2, "n_rx": 2, "layers": 2, "precoder": "identity"},
+    3: {"name": "SM 4x4", "n_tx": 4, "n_rx": 4, "layers": 4, "precoder": "identity"},
+    4: {"name": "SM 4x2", "n_tx": 4, "n_rx": 2, "layers": 2, "precoder": "tx_repeat"},
+    5: {"name": "SM 4x4 R2", "n_tx": 4, "n_rx": 4, "layers": 2, "precoder": "tx_repeat"},
+}
+
+MIMO_DETECTORS = {
+    1: "ZF",
+    2: "IRC/MMSE",
+    3: "MMSE-SIC",
+}
+
+DEFAULT_MIMO_MODE = 1
+DEFAULT_MIMO_DETECTOR = 2

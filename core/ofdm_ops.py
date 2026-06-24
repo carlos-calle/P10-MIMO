@@ -1,14 +1,6 @@
-from functools import lru_cache
-
 import numpy as np
 
-from .config import (
-    CHANNEL_ESTIMATION_RIDGE,
-    PILOT_SEED,
-    PILOT_SPACING_SC,
-    PILOT_STAGGER_ENABLED,
-    PILOT_STAGGER_OFFSET_SC,
-)
+from .utils import quantize_symbols_to_constellation
 
 
 def active_subcarrier_indices(n_fft, nc):
@@ -29,53 +21,51 @@ def active_subcarrier_indices(n_fft, nc):
     return np.concatenate((negative, positive))
 
 
-def _pilot_offset(block_idx, pilot_spacing, staggered):
-    if not staggered:
-        return 0
-    return (int(block_idx) % 2) * (PILOT_STAGGER_OFFSET_SC % pilot_spacing)
+def channel_frequency_response(h, n_fft, nc):
+    """Calcula H[k] en las subportadoras activas desde la respuesta impulsiva."""
+    h = np.asarray(h, dtype=np.complex128)
+    active_indices = active_subcarrier_indices(n_fft, nc)
+    if h.ndim == 1:
+        return np.fft.fft(h, n=n_fft)[active_indices]
+    if h.ndim == 3:
+        h_freq = np.fft.fft(h, n=n_fft, axis=-1)
+        return np.moveaxis(h_freq[:, :, active_indices], -1, 0)
+    raise ValueError("La respuesta de canal debe ser SISO 1D o MIMO 3D")
 
 
-def pilot_subcarrier_mask(
-    nc,
-    pilot_spacing=PILOT_SPACING_SC,
-    block_idx=0,
-    staggered=PILOT_STAGGER_ENABLED,
-):
-    """Mascara de pilotos dentro de las subportadoras activas."""
-    if pilot_spacing <= 0:
-        raise ValueError("El espaciamiento de pilotos debe ser positivo")
-    offset = _pilot_offset(block_idx, pilot_spacing, staggered)
-    return ((np.arange(nc) - offset) % pilot_spacing) == 0
+def mimo_precoder_matrix(n_tx, n_layers=None, precoder="identity"):
+    """Devuelve la matriz W que mapea capas espaciales a antenas TX fisicas."""
+    n_tx = int(n_tx)
+    n_layers = n_tx if n_layers is None else int(n_layers)
+    if n_tx <= 0 or n_layers <= 0:
+        raise ValueError("n_tx y n_layers deben ser positivos")
+    if n_layers > n_tx:
+        raise ValueError("No puede haber mas capas que antenas TX")
 
+    if isinstance(precoder, np.ndarray):
+        matrix = np.asarray(precoder, dtype=np.complex128)
+    else:
+        mode = "identity" if precoder is None else str(precoder).lower()
+        if mode == "identity":
+            if n_tx != n_layers:
+                raise ValueError("El precoder identidad requiere n_tx == n_layers")
+            matrix = np.eye(n_tx, dtype=np.complex128)
+        elif mode in ("tx_repeat", "repeat"):
+            if n_tx % n_layers != 0:
+                raise ValueError("tx_repeat requiere que n_tx sea multiplo de n_layers")
+            repeats = n_tx // n_layers
+            matrix = np.zeros((n_tx, n_layers), dtype=np.complex128)
+            for tx_idx in range(n_tx):
+                matrix[tx_idx, tx_idx % n_layers] = 1 / np.sqrt(repeats)
+        else:
+            raise ValueError("Precoder MIMO no soportado")
 
-def pilot_subcarrier_masks(
-    num_blocks,
-    nc,
-    pilot_spacing=PILOT_SPACING_SC,
-    staggered=PILOT_STAGGER_ENABLED,
-):
-    """Mascara 2D de pilotos con desplazamiento alternado por bloque."""
-    if num_blocks <= 0:
-        return np.empty((0, nc), dtype=bool)
-    return np.vstack(
-        [
-            pilot_subcarrier_mask(nc, pilot_spacing, block_idx, staggered)
-            for block_idx in range(num_blocks)
-        ]
-    )
-
-
-def pilot_symbol_grid(num_blocks, num_pilots, seed=PILOT_SEED):
-    """Secuencia QPSK deterministica conocida por Tx y Rx."""
-    if num_blocks <= 0 or num_pilots <= 0:
-        return np.empty((max(num_blocks, 0), max(num_pilots, 0)), dtype=np.complex128)
-
-    rng = np.random.default_rng(seed)
-    alphabet = np.array(
-        [1 + 1j, 1 - 1j, -1 + 1j, -1 - 1j],
-        dtype=np.complex128,
-    ) / np.sqrt(2)
-    return alphabet[rng.integers(0, len(alphabet), size=(num_blocks, num_pilots))]
+    if matrix.shape != (n_tx, n_layers):
+        raise ValueError("La matriz de precoding debe tener forma n_tx x n_layers")
+    gram = matrix.conj().T @ matrix
+    if not np.allclose(gram, np.eye(n_layers), atol=1e-10):
+        raise ValueError("La matriz de precoding debe tener columnas ortonormales")
+    return matrix
 
 
 def _map_active_grid_to_time(active_grid, n_fft, nc):
@@ -95,6 +85,22 @@ def _time_to_active_grid(rx_time_signal, n_fft, nc):
     return fft_out[:, active_subcarrier_indices(n_fft, nc)]
 
 
+def _time_to_active_grid_multi(rx_time_signals, n_fft, nc):
+    rx_time_signals = np.asarray(rx_time_signals, dtype=np.complex128)
+    if rx_time_signals.ndim == 1:
+        rx_time_signals = rx_time_signals[None, :]
+    if rx_time_signals.ndim != 2:
+        raise ValueError("La senal MIMO recibida debe ser 1D o 2D")
+
+    grids = [
+        _time_to_active_grid(rx_time_signals[rx_idx], n_fft, nc)
+        for rx_idx in range(rx_time_signals.shape[0])
+    ]
+    if not grids:
+        return np.empty((0, 0, nc), dtype=np.complex128)
+    return np.stack(grids, axis=0)
+
+
 def _cp_lengths_for_blocks(cp_config, num_blocks, n_fft):
     if np.isscalar(cp_config):
         cp_len = int(n_fft * cp_config) if isinstance(cp_config, float) else int(cp_config)
@@ -108,47 +114,74 @@ def _cp_lengths_for_blocks(cp_config, num_blocks, n_fft):
     return np.tile(cp_pattern, repeats)[:num_blocks]
 
 
-def modulate_ofdm_with_pilots(
-    symbols,
-    n_fft,
-    nc,
-    pilot_spacing=PILOT_SPACING_SC,
-    pilot_seed=PILOT_SEED,
-    pilot_staggered=PILOT_STAGGER_ENABLED,
-):
-    """
-    Inserta pilotos conocidos en la grilla activa y aplica IFFT.
-
-    El piloto se ubica cada `pilot_spacing` subportadoras activas. Si el
-    patron escalonado esta activo, los bloques alternan un desplazamiento de
-    media separacion para densificar la estimacion en frecuencia.
-    """
+def modulate_ofdm(symbols, n_fft, nc):
+    """Mapea todos los simbolos QAM a subportadoras activas y aplica IFFT."""
     symbols = np.asarray(symbols, dtype=np.complex128)
-    first_pilot_mask = pilot_subcarrier_mask(nc, pilot_spacing, 0, pilot_staggered)
-    data_per_block = nc - int(np.sum(first_pilot_mask))
     num_symbols = len(symbols)
-    num_blocks = int(np.ceil(num_symbols / data_per_block)) if num_symbols else 0
+    num_blocks = int(np.ceil(num_symbols / nc)) if num_symbols else 0
     if num_blocks == 0:
         return np.array([], dtype=np.complex128), 0
 
-    pilot_masks = pilot_subcarrier_masks(num_blocks, nc, pilot_spacing, pilot_staggered)
-    pilot_counts = np.sum(pilot_masks, axis=1)
-    if not np.all(pilot_counts == pilot_counts[0]):
-        raise ValueError("El patron de pilotos debe mantener el mismo overhead por bloque")
-
-    padded = np.zeros(num_blocks * data_per_block, dtype=np.complex128)
+    padded = np.zeros(num_blocks * nc, dtype=np.complex128)
     padded[:num_symbols] = symbols
-    data_grid = padded.reshape(num_blocks, data_per_block)
-
-    active_grid = np.zeros((num_blocks, nc), dtype=np.complex128)
-    pilots = pilot_symbol_grid(num_blocks, int(pilot_counts[0]), pilot_seed)
-    for block_idx in range(num_blocks):
-        pilot_mask = pilot_masks[block_idx]
-        active_grid[block_idx, pilot_mask] = pilots[block_idx]
-        active_grid[block_idx, ~pilot_mask] = data_grid[block_idx]
-
+    active_grid = padded.reshape(num_blocks, nc)
     time_grid = _map_active_grid_to_time(active_grid, n_fft, nc)
     return time_grid.reshape(-1), num_blocks
+
+
+def _split_symbols_into_layers(symbols, n_layers, num_blocks, data_per_layer):
+    layer_capacity = num_blocks * data_per_layer
+    layer_grid = np.zeros((n_layers, layer_capacity), dtype=np.complex128)
+    for layer_idx in range(n_layers):
+        layer_symbols = symbols[layer_idx::n_layers]
+        layer_grid[layer_idx, : len(layer_symbols)] = layer_symbols
+    return layer_grid.reshape(n_layers, num_blocks, data_per_layer)
+
+
+def _interleave_layer_symbols(layer_symbols):
+    layer_symbols = np.asarray(layer_symbols, dtype=np.complex128)
+    if layer_symbols.ndim != 2:
+        raise ValueError("Los simbolos por capa deben ser una matriz 2D")
+
+    n_layers, layer_len = layer_symbols.shape
+    interleaved = np.zeros(n_layers * layer_len, dtype=np.complex128)
+    for layer_idx in range(n_layers):
+        interleaved[layer_idx::n_layers] = layer_symbols[layer_idx]
+    return interleaved
+
+
+def modulate_mimo_ofdm(
+    symbols,
+    n_fft,
+    nc,
+    n_tx=2,
+    n_layers=None,
+    precoder="identity",
+):
+    """Genera senales OFDM por antena TX usando todas las subportadoras activas."""
+    symbols = np.asarray(symbols, dtype=np.complex128)
+    n_tx = int(n_tx)
+    n_layers = n_tx if n_layers is None else int(n_layers)
+    precoder_matrix = mimo_precoder_matrix(n_tx, n_layers, precoder)
+    data_per_layer = int(nc)
+
+    num_symbols = len(symbols)
+    symbols_per_block = data_per_layer * n_layers
+    num_blocks = int(np.ceil(num_symbols / symbols_per_block)) if num_symbols else 0
+    if num_blocks == 0:
+        return np.empty((n_tx, 0), dtype=np.complex128), 0
+
+    layer_grid = _split_symbols_into_layers(symbols, n_layers, num_blocks, data_per_layer)
+    active_grids = np.zeros((n_tx, num_blocks, nc), dtype=np.complex128)
+
+    for block_idx in range(num_blocks):
+        active_grids[:, block_idx, :] = precoder_matrix @ layer_grid[:, block_idx, :]
+
+    time_signals = [
+        _map_active_grid_to_time(active_grids[tx_idx], n_fft, nc).reshape(-1)
+        for tx_idx in range(n_tx)
+    ]
+    return np.vstack(time_signals), num_blocks
 
 
 def add_cyclic_prefix(signal, num_blocks, n_fft, cp_config):
@@ -191,117 +224,195 @@ def remove_cyclic_prefix(rx_signal, n_fft, cp_config):
     return np.concatenate(rx_no_cp)
 
 
-def _average_pilot_observations(active_grid, pilot_masks, pilots, nc):
-    sum_h = np.zeros(nc, dtype=np.complex128)
-    count_h = np.zeros(nc, dtype=int)
-
-    for block_idx, pilot_mask in enumerate(pilot_masks):
-        pilot_indices = np.flatnonzero(pilot_mask)
-        h_ls = active_grid[block_idx, pilot_mask] / pilots[block_idx]
-        sum_h[pilot_indices] += h_ls
-        count_h[pilot_indices] += 1
-
-    known_indices = np.flatnonzero(count_h > 0)
-    if len(known_indices) == 0:
-        return known_indices, np.array([], dtype=np.complex128)
-    return known_indices, sum_h[known_indices] / count_h[known_indices]
-
-
-@lru_cache(maxsize=32)
-def _time_domain_ls_weights(n_fft, nc, tap_count, known_indices_tuple, ridge):
-    active_bins = active_subcarrier_indices(n_fft, nc)
-    known_indices = np.asarray(known_indices_tuple, dtype=int)
-    pilot_bins = active_bins[known_indices]
-    taps = np.arange(tap_count)
-    basis = np.exp(-2j * np.pi * pilot_bins[:, None] * taps[None, :] / n_fft)
-    if ridge > 0:
-        gram = basis.conj().T @ basis
-        return np.linalg.solve(gram + ridge * np.eye(tap_count), basis.conj().T)
-    return np.linalg.pinv(basis)
-
-
-def _estimate_channel_from_time_domain_ls(
-    active_grid,
-    pilot_masks,
-    pilots,
-    n_fft,
-    nc,
-    max_channel_taps,
-    ridge,
-):
-    """Estima taps del canal desde pilotos y reconstruye H[k] por FFT."""
-    known_indices, h_known = _average_pilot_observations(active_grid, pilot_masks, pilots, nc)
-    if len(known_indices) == 0:
-        return np.ones_like(active_grid, dtype=np.complex128)
-
-    tap_count = min(max(1, int(max_channel_taps)), n_fft, len(known_indices))
-    weights = _time_domain_ls_weights(
-        n_fft,
-        nc,
-        tap_count,
-        tuple(known_indices.tolist()),
-        float(ridge),
-    )
-    h_taps = weights @ h_known
-    h_time = np.zeros(n_fft, dtype=np.complex128)
-    h_time[:tap_count] = h_taps
-    h_active = np.fft.fft(h_time)[active_subcarrier_indices(n_fft, nc)]
-    return np.tile(h_active, (active_grid.shape[0], 1))
-
-
-def _equalize_grid(active_grid, h_est, noise_to_signal=0.0, threshold=1e-10):
+def _equalize_grid(active_grid, h_freq, noise_to_signal=0.0, threshold=1e-10):
     noise_to_signal = max(0.0, float(noise_to_signal))
-    denom = np.abs(h_est) ** 2 + noise_to_signal
-    denom[denom < threshold] = threshold
-    return active_grid * np.conj(h_est) / denom
+    denom = np.abs(h_freq) ** 2 + noise_to_signal
+    denom = np.maximum(denom, threshold)
+    return active_grid * np.conj(h_freq) / denom
 
 
-def demodulate_ofdm_with_pilots(
+def demodulate_ofdm_with_channel(
     rx_time_signal,
     n_fft,
     nc,
-    max_channel_taps,
+    h,
     noise_to_signal=0.0,
-    pilot_spacing=PILOT_SPACING_SC,
-    pilot_seed=PILOT_SEED,
-    pilot_staggered=PILOT_STAGGER_ENABLED,
-    channel_estimation_ridge=CHANNEL_ESTIMATION_RIDGE,
+    channel_scale=1.0,
     threshold=1e-10,
 ):
-    """
-    Recupera datos OFDM estimando el canal a partir de pilotos conocidos.
-
-    Retorna los simbolos de datos ecualizados y la estimacion H[k] por bloque.
-    """
+    """Demodula SISO usando la respuesta de canal conocida directamente."""
     active_grid = _time_to_active_grid(rx_time_signal, n_fft, nc)
     if active_grid.shape[0] == 0:
         return np.array([], dtype=np.complex128), active_grid
 
-    num_blocks = active_grid.shape[0]
-    pilot_masks = pilot_subcarrier_masks(num_blocks, nc, pilot_spacing, pilot_staggered)
-    pilot_counts = np.sum(pilot_masks, axis=1)
-    if not np.all(pilot_counts == pilot_counts[0]):
-        raise ValueError("El patron de pilotos debe mantener el mismo overhead por bloque")
+    h_freq = channel_frequency_response(h, n_fft, nc) * complex(channel_scale)
+    equalized_grid = _equalize_grid(active_grid, h_freq[None, :], noise_to_signal, threshold)
+    return equalized_grid.reshape(-1), h_freq
 
-    pilots = pilot_symbol_grid(num_blocks, int(pilot_counts[0]), pilot_seed)
-    h_est = _estimate_channel_from_time_domain_ls(
-        active_grid,
-        pilot_masks,
-        pilots,
-        n_fft,
-        nc,
-        max_channel_taps,
-        channel_estimation_ridge,
-    )
 
-    equalized_grid = _equalize_grid(
-        active_grid,
-        h_est,
+def _detect_linear_mmse(y, h_matrix, noise_to_signal=0.0, threshold=1e-10):
+    h_herm = np.swapaxes(h_matrix.conj(), -1, -2)
+    gram = h_herm @ h_matrix
+    n_layers = h_matrix.shape[2]
+    regularizer = max(0.0, float(noise_to_signal))
+    gram = gram + regularizer * np.eye(n_layers, dtype=np.complex128)[None, :, :]
+    rhs = h_herm @ y[:, :, None]
+    try:
+        return np.linalg.solve(gram, rhs)[:, :, 0]
+    except np.linalg.LinAlgError:
+        return (np.linalg.pinv(gram, rcond=threshold) @ rhs)[:, :, 0]
+
+
+def _detect_mmse_sic(y, h_matrix, mod_type, noise_to_signal=0.0, threshold=1e-10):
+    if mod_type is None:
+        raise ValueError("MMSE-SIC requiere el tipo de modulacion")
+
+    batch_size, _ = y.shape
+    n_layers = h_matrix.shape[2]
+    residual = y.copy()
+    active = np.ones((batch_size, n_layers), dtype=bool)
+    detected = np.zeros((batch_size, n_layers), dtype=np.complex128)
+
+    column_power = np.sum(np.abs(h_matrix) ** 2, axis=1)
+    detection_order = np.argsort(-column_power, axis=1)
+    batch_indices = np.arange(batch_size)
+
+    for step_idx in range(n_layers):
+        h_active = h_matrix * active[:, None, :]
+        estimates = _detect_linear_mmse(
+            residual,
+            h_active,
+            noise_to_signal=max(float(noise_to_signal), threshold),
+            threshold=threshold,
+        )
+        chosen_layers = detection_order[:, step_idx]
+        hard_symbols = quantize_symbols_to_constellation(
+            estimates[batch_indices, chosen_layers],
+            mod_type,
+        )
+
+        detected[batch_indices, chosen_layers] = hard_symbols
+        residual -= h_matrix[batch_indices, :, chosen_layers] * hard_symbols[:, None]
+        active[batch_indices, chosen_layers] = False
+
+    return detected
+
+
+def detect_mimo_symbols(
+    y,
+    h_matrix,
+    detector="MMSE",
+    noise_to_signal=0.0,
+    threshold=1e-10,
+    mod_type=None,
+):
+    """Detecta capas MIMO por ZF, IRC/MMSE o MMSE-SIC."""
+    y = np.asarray(y, dtype=np.complex128)
+    h_matrix = np.asarray(h_matrix, dtype=np.complex128)
+    detector = str(detector).upper()
+
+    squeeze = y.ndim == 1
+    if squeeze:
+        y = y[None, :]
+        h_matrix = h_matrix[None, :, :]
+
+    if h_matrix.ndim != 3 or y.ndim != 2:
+        raise ValueError("Las dimensiones de entrada MIMO no son validas")
+    if h_matrix.shape[0] != y.shape[0] or h_matrix.shape[1] != y.shape[1]:
+        raise ValueError("La matriz de canal y la senal recibida no coinciden")
+
+    if detector == "ZF":
+        weights = np.linalg.pinv(h_matrix, rcond=threshold)
+        detected = np.einsum("bij,bj->bi", weights, y)
+    elif detector in ("MMSE", "IRC/MMSE", "IRC"):
+        detected = _detect_linear_mmse(
+            y,
+            h_matrix,
+            noise_to_signal=noise_to_signal,
+            threshold=threshold,
+        )
+    elif detector in ("MMSE-SIC", "SIC"):
+        detected = _detect_mmse_sic(
+            y,
+            h_matrix,
+            mod_type=mod_type,
+            noise_to_signal=noise_to_signal,
+            threshold=threshold,
+        )
+    else:
+        raise ValueError("Detector MIMO no soportado")
+
+    return detected[0] if squeeze else detected
+
+
+def _detect_mimo_layers(
+    active_rx_grid,
+    h_eff,
+    detector,
+    noise_to_signal,
+    threshold,
+    mod_type,
+):
+    num_blocks = active_rx_grid.shape[1]
+    nc = active_rx_grid.shape[2]
+    if h_eff.ndim == 3:
+        h_blocks = np.broadcast_to(h_eff[None, :, :, :], (num_blocks, *h_eff.shape))
+    elif h_eff.ndim == 4:
+        h_blocks = h_eff
+    else:
+        raise ValueError("El canal MIMO efectivo debe ser 3D o 4D")
+
+    n_layers = h_blocks.shape[3]
+    detected_layers = np.zeros((n_layers, num_blocks * nc), dtype=np.complex128)
+
+    for block_idx in range(num_blocks):
+        block_h = h_blocks[block_idx]
+        block_y = active_rx_grid[:, block_idx, :].T
+        block_detected = detect_mimo_symbols(
+            block_y,
+            block_h,
+            detector=detector,
+            noise_to_signal=noise_to_signal,
+            threshold=threshold,
+            mod_type=mod_type,
+        )
+        start = block_idx * nc
+        end = start + nc
+        detected_layers[:, start:end] = block_detected.T
+
+    return detected_layers
+
+
+def demodulate_mimo_ofdm_with_channel(
+    rx_time_signals,
+    n_fft,
+    nc,
+    h,
+    n_tx=2,
+    n_layers=None,
+    precoder="identity",
+    detector="MMSE",
+    noise_to_signal=0.0,
+    mod_type=None,
+    channel_scale=1.0,
+    threshold=1e-10,
+):
+    """Demodula MIMO usando H[k] conocida directamente desde el canal."""
+    active_rx_grid = _time_to_active_grid_multi(rx_time_signals, n_fft, nc)
+    if active_rx_grid.shape[1] == 0:
+        return np.array([], dtype=np.complex128), active_rx_grid
+
+    n_tx = int(n_tx)
+    n_layers = n_tx if n_layers is None else int(n_layers)
+    precoder_matrix = mimo_precoder_matrix(n_tx, n_layers, precoder)
+    h_phys = channel_frequency_response(h, n_fft, nc)
+    h_eff = np.einsum("krt,tl->krl", h_phys, precoder_matrix) * complex(channel_scale)
+    detected_layers = _detect_mimo_layers(
+        active_rx_grid,
+        h_eff,
+        detector,
         noise_to_signal,
         threshold,
+        mod_type,
     )
-    data_blocks = [
-        equalized_grid[block_idx, ~pilot_masks[block_idx]]
-        for block_idx in range(num_blocks)
-    ]
-    return np.concatenate(data_blocks), h_est
+    return _interleave_layer_symbols(detected_layers), h_phys

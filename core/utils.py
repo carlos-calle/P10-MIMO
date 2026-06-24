@@ -119,6 +119,27 @@ def demap_symbols_to_bits(symbols, mod_type):
     return np.vstack(decoded_chunks).reshape(-1)[: len(symbols) * n_bits]
 
 
+def quantize_symbols_to_constellation(symbols, mod_type):
+    """Cuantiza simbolos complejos al punto LTE-QAM mas cercano."""
+    constellation, _ = get_constellation_map(mod_type)
+    points = np.array(list(constellation.values()), dtype=np.complex128)
+    symbols = np.asarray(symbols, dtype=np.complex128)
+    original_shape = symbols.shape
+    flat_symbols = symbols.reshape(-1)
+
+    quantized_chunks = []
+    chunk_size = 65_536
+    for start in range(0, len(flat_symbols), chunk_size):
+        chunk = flat_symbols[start:start + chunk_size]
+        distances = np.abs(chunk[:, None] - points[None, :]) ** 2
+        nearest = np.argmin(distances, axis=1)
+        quantized_chunks.append(points[nearest])
+
+    if not quantized_chunks:
+        return np.array([], dtype=np.complex128).reshape(original_shape)
+    return np.concatenate(quantized_chunks).reshape(original_shape)
+
+
 def apply_scrambling(bits, seed=2024):
     """
     Aplica o revierte scrambling aditivo con XOR.

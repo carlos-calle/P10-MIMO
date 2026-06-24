@@ -19,7 +19,6 @@ Este archivo resume de donde salen los parametros LTE usados en el proyecto. La 
 | Mapeo 16-QAM | ETSI TS 136 211 / 3GPP TS 36.211, seccion 7.1.3, tabla 7.1.3-1. |
 | Mapeo 64-QAM | ETSI TS 136 211 / 3GPP TS 36.211, seccion 7.1.4, tabla 7.1.4-1. |
 | Generacion OFDM baseband y uso de N=2048 para 15 kHz como referencia temporal | ETSI TS 136 211 / 3GPP TS 36.211, secciones 4 y 6.12. |
-| Pilotos de referencia LTE espaciados cada 6 subportadoras en los simbolos CRS | ETSI TS 136 211 / 3GPP TS 36.211, seccion 6.10.1, especialmente el mapeo `k = 6m + ...`. |
 | Perfiles Rayleigh ITU Pedestrian A/B y Vehicular A/B: retardos relativos y potencias medias por tap | ITU-R M.1225, seccion 1.2.2 y tablas de tapped-delay-line; valores portados localmente desde `practica1/itu_profiles.py`. |
 
 ## Enlaces
@@ -50,9 +49,11 @@ Estas partes son elecciones de modelado para mantener el simulador didactico y l
 - Mantener `Didactico CP` como perfil no ITU de prueba: es un canal determinista de dos caminos con eco a `12 us`, creado para mostrar el efecto del CP normal frente al CP extendido.
 - Mantener perfiles ITU Pedestrian/Vehicular discretizados como alternativas de canal realistas.
 - Asumir sincronizacion perfecta.
-- Usar Monte Carlo para BER con un numero configurable de corridas.
-- Usar factor de sobremuestreo `L=4` para estimar PAPR.
-- Simplificar los CRS LTE a pilotos QPSK deterministas en todos los simbolos OFDM. La separacion base actual del simulador es de 6 subportadoras, con patron escalonado 0/3 entre bloques.
+- Usar Monte Carlo para BER con bits aleatorios reproducibles y un numero configurable de corridas.
+- Usar todas las subportadoras activas como datos. En esta version simplificada no se modelan CRS, senales de referencia ni estimacion de canal; el receptor usa directamente el canal generado por la simulacion.
+- Implementar la practica MIMO como SU-MIMO `2x2` de multiplexacion espacial, con una sola imagen repartida en dos capas, y agregar `4x2` y `4x4` como extensiones didacticas para presentacion.
+- Implementar `4x2` con 2 capas y un precoder fijo semiunitario; no se implementa rank adaptation, PMI dinamico ni precodificacion por libro de codigos LTE.
+- Detectar las capas espaciales por subportadora con ZF, IRC/MMSE y MMSE-SIC.
 - Mantener el canal Rayleigh estatico por corrida, sin variacion temporal Doppler/Jakes.
 
 ## Nota sobre espaciamiento entre subportadoras
