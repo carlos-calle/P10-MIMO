@@ -72,31 +72,31 @@ class OFDMSimulationManager:
     def _normalize_rank_mode(self, rank_mode):
         value = "max" if rank_mode is None else str(rank_mode).strip().lower()
         value = value.replace("á", "a").replace(" ", "_").replace("-", "_")
-        if value in ("2", "r2", "rank2", "rank_2"):
-            return "rank2", "Rank 2"
-        if value in ("max", "maximum", "rank_max", "rank_maximo", "maximo"):
-            return "max", "Rank maximo"
-        raise ValueError("Modo de rank no soportado")
+        if value in ("2", "r2", "rank2", "rank_2", "capas2", "2_capas"):
+            return "rank2", "2 capas"
+        if value in ("max", "maximum", "rank_max", "rank_maximo", "maximo", "max_capas"):
+            return "max", "maximo de capas"
+        raise ValueError("Modo de capas no soportado")
 
     def _mimo_comparison_scenarios(self, rank_mode="max"):
         normalized_rank, _ = self._normalize_rank_mode(rank_mode)
         if normalized_rank == "rank2":
             return [
-                {"label": "2x2 R2 IRC/MMSE", "mode": 2, "detector": 2, "color": "#4E79A7", "linestyle": "-", "marker": "o"},
-                {"label": "4x2 R2 IRC/MMSE", "mode": 4, "detector": 2, "color": "#59A14F", "linestyle": "-", "marker": "o"},
-                {"label": "4x4 R2 IRC/MMSE", "mode": 5, "detector": 2, "color": "#F28E2B", "linestyle": "-", "marker": "o"},
-                {"label": "2x2 R2 SIC", "mode": 2, "detector": 3, "color": "#76B7B2", "linestyle": "--", "marker": "s"},
-                {"label": "4x2 R2 SIC", "mode": 4, "detector": 3, "color": "#B07AA1", "linestyle": "--", "marker": "s"},
-                {"label": "4x4 R2 SIC", "mode": 5, "detector": 3, "color": "#E15759", "linestyle": "--", "marker": "s"},
+                {"label": "2x2 MMSE", "mode": 2, "detector": 2, "color": "#4E79A7", "linestyle": "-", "marker": "o"},
+                {"label": "4x2 MMSE", "mode": 4, "detector": 2, "color": "#59A14F", "linestyle": "-", "marker": "o"},
+                {"label": "4x4 MMSE", "mode": 5, "detector": 2, "color": "#F28E2B", "linestyle": "-", "marker": "o"},
+                {"label": "2x2 SIC", "mode": 2, "detector": 3, "color": "#76B7B2", "linestyle": "--", "marker": "s"},
+                {"label": "4x2 SIC", "mode": 4, "detector": 3, "color": "#B07AA1", "linestyle": "--", "marker": "s"},
+                {"label": "4x4 SIC", "mode": 5, "detector": 3, "color": "#E15759", "linestyle": "--", "marker": "s"},
             ]
 
         return [
-            {"label": "2x2 R2 IRC/MMSE", "mode": 2, "detector": 2, "color": "#4E79A7", "linestyle": "-", "marker": "o"},
-            {"label": "4x2 R2 IRC/MMSE", "mode": 4, "detector": 2, "color": "#59A14F", "linestyle": "-", "marker": "o"},
-            {"label": "4x4 R4 IRC/MMSE", "mode": 3, "detector": 2, "color": "#F28E2B", "linestyle": "-", "marker": "o"},
-            {"label": "2x2 R2 SIC", "mode": 2, "detector": 3, "color": "#76B7B2", "linestyle": "--", "marker": "s"},
-            {"label": "4x2 R2 SIC", "mode": 4, "detector": 3, "color": "#B07AA1", "linestyle": "--", "marker": "s"},
-            {"label": "4x4 R4 SIC", "mode": 3, "detector": 3, "color": "#E15759", "linestyle": "--", "marker": "s"},
+            {"label": "2x2 MMSE", "mode": 2, "detector": 2, "color": "#4E79A7", "linestyle": "-", "marker": "o"},
+            {"label": "4x2 MMSE", "mode": 4, "detector": 2, "color": "#59A14F", "linestyle": "-", "marker": "o"},
+            {"label": "4x4 MMSE", "mode": 3, "detector": 2, "color": "#F28E2B", "linestyle": "-", "marker": "o"},
+            {"label": "2x2 SIC", "mode": 2, "detector": 3, "color": "#76B7B2", "linestyle": "--", "marker": "s"},
+            {"label": "4x2 SIC", "mode": 4, "detector": 3, "color": "#B07AA1", "linestyle": "--", "marker": "s"},
+            {"label": "4x4 SIC", "mode": 3, "detector": 3, "color": "#E15759", "linestyle": "--", "marker": "s"},
         ]
 
     def _active_channel_frequency_response(self, h, n_fft, nc):
@@ -246,7 +246,7 @@ class OFDMSimulationManager:
             tx_scale = 1 / np.sqrt(mode_cfg["layers"])
             tx_cp = np.vstack(tx_cp_rows) * tx_scale
 
-        return {
+        tx_plan = {
             "tx_cp": tx_cp,
             "cp_used": cp_used,
             "n_fft": n_fft,
@@ -263,6 +263,7 @@ class OFDMSimulationManager:
             "data_subcarriers_per_layer": self._data_subcarriers_per_layer(nc, mimo_mode),
             "throughput_factor": self._throughput_factor(nc, mimo_mode),
         }
+        return tx_plan
 
     def _receive_bits(
         self,
@@ -432,8 +433,7 @@ class OFDMSimulationManager:
                 "info": (
                     f"BER: {ber:.5f} | Modo: {mode_cfg['name']} | Detector: {detector_label} | "
                     f"Antenas: {tx_plan['n_tx']}x{tx_plan['n_rx']} | Capas: {tx_plan['num_layers']} | "
-                    f"Factor: {tx_plan['throughput_factor']:.2f}x | CSI perfecta | "
-                    f"Cond media/med: {channel_metrics['condition_mean']:.2f}/"
+                    f"CSI perfecta | Cond media/med: {channel_metrics['condition_mean']:.2f}/"
                     f"{channel_metrics['condition_median']:.2f} | Cap: "
                     f"{channel_metrics['capacity_bpshz']:.2f} bps/Hz | "
                     f"Bits: {valid_len} | Simbolos: {tx_plan['num_symbols']} | "
@@ -641,7 +641,7 @@ class OFDMSimulationManager:
         num_paths=1,
         rank_mode="max",
     ):
-        """Compara arreglos 2x2, 4x2 y 4x4 con IRC/MMSE y SIC."""
+        """Compara arreglos 2x2, 4x2 y 4x4 con MMSE y SIC."""
         normalized_rank, rank_label = self._normalize_rank_mode(rank_mode)
         snr_range = np.array([5, 10, 15, 20, 25, 30], dtype=float)
         tx_bits_raw = self._random_ber_bits(100 + mod_type)
@@ -687,8 +687,8 @@ class OFDMSimulationManager:
             for scenario in scenarios
         }
         block_summary = self._format_blocks_by_label(blocks_by_mode)
-        throughput_summary = self._format_blocks_by_label(
-            {label: f"{factor:.2f}x" for label, factor in throughput_by_mode.items()}
+        layers_summary = self._format_blocks_by_label(
+            {scenario["label"]: self._mimo_config(scenario["mode"])["layers"] for scenario in scenarios}
         )
         config_summary = self._selected_config_summary(bw_idx, profile_idx, num_paths)
         mod_name = config.MODULATION_NAMES[mod_type]
@@ -710,7 +710,7 @@ class OFDMSimulationManager:
                 f"Comparacion multiantena: {mod_name}, {rank_label}, "
                 f"bits aleatorios {len(tx_bits_raw)}, "
                 f"corridas/punto {min_runs}-{max_runs}, bloques/corrida {block_summary}, "
-                f"capas {throughput_summary} | {config_summary}"
+                f"capas {layers_summary} | {config_summary}"
             ),
         }
 
@@ -756,7 +756,7 @@ class OFDMSimulationManager:
             "rank_label": rank_label,
             "summary": (
                 f"Prueba multiantena: {mod_name}, {rank_label}, SNR {snr_db} dB, "
-                "2x2/4x2/4x4 con IRC/MMSE y SIC"
+                "2x2/4x2/4x4 con MMSE y SIC"
             ),
         }
 

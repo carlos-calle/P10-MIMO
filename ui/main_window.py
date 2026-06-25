@@ -9,6 +9,7 @@ from matplotlib.figure import Figure
 from PIL import Image
 
 from controller.simulation_mgr import OFDMSimulationManager
+from core import config
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -31,8 +32,11 @@ class MainWindow(ctk.CTk):
         self.default_bw_idx = 4
         self.default_profile_idx = 1
         self.default_num_paths = 1
+        self.bandwidth_map = {value["name"]: key for key, value in config.LTE_BANDWIDTHS.items()}
+        self.profile_map = {value["name"]: key for key, value in config.LTE_PROFILES.items()}
+        self.path_map = {f"{paths} camino" if paths == 1 else f"{paths} caminos": paths for paths in range(1, 7)}
         self.mod_map = {"QPSK": 1, "16-QAM": 2, "64-QAM": 3}
-        self.rank_mode_map = {"Rank 2": "rank2", "Rank máximo": "max"}
+        self.rank_mode_map = {"2 capas": "rank2", "Máximo de capas": "max"}
 
         self.setup_ui()
 
@@ -41,48 +45,74 @@ class MainWindow(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self.sidebar_frame = ctk.CTkFrame(self, width=250, corner_radius=0)
+        self.sidebar_frame = ctk.CTkFrame(self, width=270, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(12, weight=1)
+        self.sidebar_frame.grid_rowconfigure(18, weight=1)
 
         self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="LTE MIMO SIM", font=ctk.CTkFont(size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
-        self.lbl_link = ctk.CTkLabel(self.sidebar_frame, text="Parámetros:", anchor="w")
-        self.lbl_link.grid(row=1, column=0, padx=20, pady=(20, 0))
+        self.lbl_mod = ctk.CTkLabel(self.sidebar_frame, text="Modulación:", anchor="w")
+        self.lbl_mod.grid(row=1, column=0, padx=20, pady=(16, 0), sticky="w")
 
         self.option_mod = ctk.CTkOptionMenu(self.sidebar_frame, values=list(self.mod_map.keys()))
         self.option_mod.grid(row=2, column=0, padx=20, pady=5)
         self.option_mod.set("16-QAM")
 
+        self.lbl_bw = ctk.CTkLabel(self.sidebar_frame, text="Ancho de banda:", anchor="w")
+        self.lbl_bw.grid(row=3, column=0, padx=20, pady=(10, 0), sticky="w")
+
+        self.option_bw = ctk.CTkOptionMenu(self.sidebar_frame, values=list(self.bandwidth_map.keys()))
+        self.option_bw.grid(row=4, column=0, padx=20, pady=5)
+        self.option_bw.set(config.LTE_BANDWIDTHS[self.default_bw_idx]["name"])
+
+        self.lbl_cp = ctk.CTkLabel(self.sidebar_frame, text="Prefijo cíclico:", anchor="w")
+        self.lbl_cp.grid(row=5, column=0, padx=20, pady=(10, 0), sticky="w")
+
+        self.option_cp = ctk.CTkOptionMenu(self.sidebar_frame, values=list(self.profile_map.keys()))
+        self.option_cp.grid(row=6, column=0, padx=20, pady=5)
+        self.option_cp.set(config.LTE_PROFILES[self.default_profile_idx]["name"])
+
         self.lbl_snr = ctk.CTkLabel(self.sidebar_frame, text="SNR: 15 dB")
-        self.lbl_snr.grid(row=3, column=0, padx=20, pady=(18,0))
+        self.lbl_snr.grid(row=7, column=0, padx=20, pady=(10, 0))
         self.slider_snr = ctk.CTkSlider(self.sidebar_frame, from_=0, to=30, number_of_steps=30, command=self.update_snr_label)
-        self.slider_snr.grid(row=4, column=0, padx=20, pady=5)
+        self.slider_snr.grid(row=8, column=0, padx=20, pady=5)
         self.slider_snr.set(15)
 
-        self.lbl_rank = ctk.CTkLabel(self.sidebar_frame, text="Rank comparación:", anchor="w")
-        self.lbl_rank.grid(row=5, column=0, padx=20, pady=(18, 0))
+        self.lbl_paths = ctk.CTkLabel(self.sidebar_frame, text="Canal multipath:", anchor="w")
+        self.lbl_paths.grid(row=9, column=0, padx=20, pady=(10, 0), sticky="w")
+
+        self.option_paths = ctk.CTkOptionMenu(self.sidebar_frame, values=list(self.path_map.keys()))
+        self.option_paths.grid(row=10, column=0, padx=20, pady=5)
+        default_paths_label = (
+            f"{self.default_num_paths} camino"
+            if self.default_num_paths == 1
+            else f"{self.default_num_paths} caminos"
+        )
+        self.option_paths.set(default_paths_label)
+
+        self.lbl_rank = ctk.CTkLabel(self.sidebar_frame, text="Capas espaciales:", anchor="w")
+        self.lbl_rank.grid(row=11, column=0, padx=20, pady=(10, 0), sticky="w")
 
         self.option_rank = ctk.CTkOptionMenu(self.sidebar_frame, values=list(self.rank_mode_map.keys()))
-        self.option_rank.grid(row=6, column=0, padx=20, pady=5)
-        self.option_rank.set("Rank 2")
+        self.option_rank.grid(row=12, column=0, padx=20, pady=5)
+        self.option_rank.set("2 capas")
 
         self.lbl_source = ctk.CTkLabel(self.sidebar_frame, text="Fuente de Datos:", anchor="w")
-        self.lbl_source.grid(row=7, column=0, padx=20, pady=(24, 0))
+        self.lbl_source.grid(row=13, column=0, padx=20, pady=(18, 0), sticky="w")
 
         self.btn_select_file = ctk.CTkButton(self.sidebar_frame, text="Seleccionar Imagen...", 
                                              fg_color="#4B4B4B", hover_color="#5B5B5B", 
                                              command=self.select_file)
-        self.btn_select_file.grid(row=8, column=0, padx=20, pady=5)
+        self.btn_select_file.grid(row=14, column=0, padx=20, pady=5)
 
         self.lbl_filename = ctk.CTkLabel(self.sidebar_frame, text="[Ningún archivo]", font=("Arial", 11), text_color="gray")
-        self.lbl_filename.grid(row=9, column=0, padx=20, pady=0)
+        self.lbl_filename.grid(row=15, column=0, padx=20, pady=0)
 
         self.btn_run_mimo = ctk.CTkButton(self.sidebar_frame, text="PRUEBA MULTIANTENA",
                                           fg_color="#1f538d", hover_color="#14375e",
                                           command=self.action_plot_mimo)
-        self.btn_run_mimo.grid(row=10, column=0, padx=20, pady=(28, 10))
+        self.btn_run_mimo.grid(row=16, column=0, padx=20, pady=(20, 8))
 
         self.btn_run_ber = ctk.CTkButton(
             self.sidebar_frame,
@@ -91,7 +121,7 @@ class MainWindow(ctk.CTk):
             border_width=2,
             command=self.action_plot_mimo_ber,
         )
-        self.btn_run_ber.grid(row=11, column=0, padx=20, pady=8)
+        self.btn_run_ber.grid(row=17, column=0, padx=20, pady=8)
 
 
         self.tabview = ctk.CTkTabview(self, width=800)
@@ -115,7 +145,7 @@ class MainWindow(ctk.CTk):
 
         self.lbl_status = ctk.CTkLabel(
             self.tab_img,
-            text="Estado: selecciona imagen para la prueba visual o genera curvas BER/throughput",
+            text="Estado: selecciona imagen para la prueba visual o genera curvas BER",
             font=("Courier", 13),
             text_color="yellow",
             justify="center",
@@ -130,6 +160,9 @@ class MainWindow(ctk.CTk):
         state = "disabled" if busy else "normal"
         for widget in (
             self.option_mod,
+            self.option_bw,
+            self.option_cp,
+            self.option_paths,
             self.option_rank,
             self.slider_snr,
             self.btn_select_file,
@@ -203,6 +236,13 @@ class MainWindow(ctk.CTk):
     def update_snr_label(self, value):
         self.lbl_snr.configure(text=f"SNR: {int(value)} dB")
 
+    def _selected_signal_params(self):
+        return (
+            self.bandwidth_map[self.option_bw.get()],
+            self.profile_map[self.option_cp.get()],
+            self.path_map[self.option_paths.get()],
+        )
+
     def select_file(self):
         """Abre cuadro de diálogo para seleccionar imagen"""
         file_path = filedialog.askopenfilename(
@@ -239,11 +279,9 @@ class MainWindow(ctk.CTk):
             messagebox.showwarning("Falta Imagen", "Selecciona una imagen para la prueba multiantena.")
             return
 
-        bw_idx = self.default_bw_idx
-        prof_idx = self.default_profile_idx
+        bw_idx, prof_idx, paths = self._selected_signal_params()
         mod_idx = self.mod_map[self.option_mod.get()]
         rank_mode = self.rank_mode_map[self.option_rank.get()]
-        paths = self.default_num_paths
 
         self._start_worker(
             "mimo",
@@ -260,11 +298,9 @@ class MainWindow(ctk.CTk):
 
     def action_plot_mimo_ber(self):
         """Genera las curvas BER multiantena con bits aleatorios."""
-        bw_idx = self.default_bw_idx
-        prof_idx = self.default_profile_idx
+        bw_idx, prof_idx, paths = self._selected_signal_params()
         mod_idx = self.mod_map[self.option_mod.get()]
         rank_mode = self.rank_mode_map[self.option_rank.get()]
-        paths = self.default_num_paths
 
         self._start_worker(
             "mimo-ber",
@@ -276,7 +312,10 @@ class MainWindow(ctk.CTk):
 
     def _show_mimo_ber_result(self, result):
         self.embed_mimo_ber_plot(self.tab_ber, result)
-        self.lbl_status.configure(text=result["summary"], text_color="white")
+        self.lbl_status.configure(
+            text=f"BER MIMO generado: {result['modulation']} | {result['rank_label']}",
+            text_color="white",
+        )
         self.tabview.set("BER MIMO")
 
     def embed_mimo_visual_grid(self, parent_frame, result):
@@ -292,7 +331,7 @@ class MainWindow(ctk.CTk):
             ax.set_facecolor('#2b2b2b')
             ax.imshow(item["rx_image"], cmap="gray", vmin=0, vmax=255)
             ax.set_title(
-                f"{item['label']}\nBER: {item['ber']:.2e} | Rank: {item['num_layers']}",
+                f"{item['label']}\nBER: {item['ber']:.2e}",
                 color="white",
                 fontsize=9,
             )
@@ -425,9 +464,8 @@ class MainWindow(ctk.CTk):
             parent_frame,
             ber_result["x"],
             ber_result["series"],
-            "BER MIMO - IRC/MMSE vs SIC",
+            "BER MIMO - MMSE vs SIC",
             "SNR (dB)",
             "Bit Error Rate (BER)",
             log_y=True,
-            footer_text=ber_result["summary"],
         )

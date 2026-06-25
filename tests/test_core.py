@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from controller.simulation_mgr import OFDMSimulationManager
-from core import channel, config, ofdm_ops, utils
+from core import channel, config, mimo_ops, ofdm_ops, utils
 
 
 class CoreSimulationTests(unittest.TestCase):
@@ -187,6 +187,43 @@ class CoreSimulationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ofdm_ops.mimo_precoder_matrix(4, 2, "identity")
 
+    def test_mimo_didactic_helpers_match_theory(self):
+        h_physical = np.array(
+            [
+                [
+                    [1 + 0j, 2 + 0j, 3 + 0j, 4 + 0j],
+                    [0.5 + 0j, 1 + 0j, 1.5 + 0j, 2 + 0j],
+                ]
+            ],
+            dtype=np.complex128,
+        )
+        w_4x2 = mimo_ops.mimo_precoder_matrix(4, 2, "tx_repeat")
+        h_eff = mimo_ops.effective_mimo_channel(h_physical, w_4x2)
+        expected = np.array(
+            [
+                [
+                    [(1 + 3) / np.sqrt(2), (2 + 4) / np.sqrt(2)],
+                    [(0.5 + 1.5) / np.sqrt(2), (1 + 2) / np.sqrt(2)],
+                ]
+            ],
+            dtype=np.complex128,
+        )
+        self.assertTrue(np.allclose(h_eff, expected))
+
+        order = mimo_ops.layer_order_by_channel_power(h_eff)
+        self.assertTrue(np.array_equal(order, np.array([[1, 0]])))
+
+        residual = np.array([[10 + 0j, 5 + 0j]], dtype=np.complex128)
+        chosen_layer = np.array([1])
+        decided_symbol = np.array([1 + 0j], dtype=np.complex128)
+        cancelled = mimo_ops.cancel_detected_layer(
+            residual,
+            h_eff,
+            chosen_layer,
+            decided_symbol,
+        )
+        self.assertTrue(np.allclose(cancelled, residual - h_eff[:, :, 1]))
+
     def test_mimo_detector_zf_and_mmse_known_channel(self):
         h_matrix = np.array(
             [
@@ -241,7 +278,7 @@ class CoreSimulationTests(unittest.TestCase):
         mmse_4x2 = ofdm_ops.detect_mimo_symbols(
             y_4x2,
             h_eff,
-            detector="IRC/MMSE",
+            detector="MMSE",
             noise_to_signal=0.0,
         )
         self.assertTrue(np.allclose(mmse_4x2, tx_4x2))
@@ -536,7 +573,7 @@ class CoreSimulationTests(unittest.TestCase):
             n_tx=4,
             n_layers=2,
             precoder=w_4x2,
-            detector="IRC/MMSE",
+            detector="MMSE",
         )
         recovered_bits = utils.demap_symbols_to_bits(recovered, 2)[:len(bits)]
         self.assertTrue(np.array_equal(bits, recovered_bits))
@@ -598,12 +635,14 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertTrue(result["success"], result.get("error"))
         self.assertLess(result["ber"], 1e-2)
         self.assertEqual(result["mimo_mode_name"], "SM 2x2")
-        self.assertEqual(result["detector"], "IRC/MMSE")
+        self.assertEqual(result["detector"], "MMSE")
         self.assertEqual(result["num_layers"], 2)
         self.assertEqual(result["data_subcarriers_per_layer"], 600)
         self.assertEqual(result["throughput_factor"], 2.0)
         self.assertIn("Modo: SM 2x2", result["info"])
-        self.assertIn("Detector: IRC/MMSE", result["info"])
+        self.assertIn("Detector: MMSE", result["info"])
+        self.assertNotIn("T_OFDM:", result["info"])
+        self.assertNotIn("T_LTE:", result["info"])
 
     def test_manager_mimo_4x2_transmission_smoke(self):
         manager = OFDMSimulationManager()
@@ -623,7 +662,7 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertTrue(result["success"], result.get("error"))
         self.assertLess(result["ber"], 1e-2)
         self.assertEqual(result["mimo_mode_name"], "SM 4x2")
-        self.assertEqual(result["detector"], "IRC/MMSE")
+        self.assertEqual(result["detector"], "MMSE")
         self.assertEqual(result["n_tx"], 4)
         self.assertEqual(result["n_rx"], 2)
         self.assertEqual(result["num_layers"], 2)
@@ -650,7 +689,7 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertTrue(result["success"], result.get("error"))
         self.assertLess(result["ber"], 1e-2)
         self.assertEqual(result["mimo_mode_name"], "SM 4x4")
-        self.assertEqual(result["detector"], "IRC/MMSE")
+        self.assertEqual(result["detector"], "MMSE")
         self.assertEqual(result["n_tx"], 4)
         self.assertEqual(result["n_rx"], 4)
         self.assertEqual(result["num_layers"], 4)
@@ -769,12 +808,12 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertEqual(
             [item["label"] for item in mimo["series"]],
             [
-                "2x2 R2 IRC/MMSE",
-                "4x2 R2 IRC/MMSE",
-                "4x4 R4 IRC/MMSE",
-                "2x2 R2 SIC",
-                "4x2 R2 SIC",
-                "4x4 R4 SIC",
+                "2x2 MMSE",
+                "4x2 MMSE",
+                "4x4 MMSE",
+                "2x2 SIC",
+                "4x2 SIC",
+                "4x4 SIC",
             ],
         )
         self.assertEqual(len({item["color"] for item in mimo["series"]}), 6)
@@ -783,24 +822,26 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertEqual(
             mimo["blocks_by_mode"],
             {
-                "2x2 R2 IRC/MMSE": 2,
-                "4x2 R2 IRC/MMSE": 2,
-                "4x4 R4 IRC/MMSE": 1,
-                "2x2 R2 SIC": 2,
-                "4x2 R2 SIC": 2,
-                "4x4 R4 SIC": 1,
+                "2x2 MMSE": 2,
+                "4x2 MMSE": 2,
+                "4x4 MMSE": 1,
+                "2x2 SIC": 2,
+                "4x2 SIC": 2,
+                "4x4 SIC": 1,
             },
         )
-        self.assertIn("Comparacion multiantena: 16-QAM, Rank maximo", mimo["summary"])
+        self.assertIn("Comparacion multiantena: 16-QAM, maximo de capas", mimo["summary"])
         self.assertIn("bits aleatorios 8192", mimo["summary"])
-        self.assertIn("2x2 R2 IRC/MMSE=2", mimo["summary"])
-        self.assertIn("4x2 R2 IRC/MMSE=2", mimo["summary"])
-        self.assertIn("4x4 R4 IRC/MMSE=1", mimo["summary"])
-        self.assertIn("capas 2x2 R2 IRC/MMSE=2.00x, 4x2 R2 IRC/MMSE=2.00x, 4x4 R4 IRC/MMSE=4.00x", mimo["summary"])
+        self.assertIn("2x2 MMSE=2", mimo["summary"])
+        self.assertIn("4x2 MMSE=2", mimo["summary"])
+        self.assertIn("4x4 MMSE=1", mimo["summary"])
+        self.assertNotIn("tiempo aprox", mimo["summary"])
+        self.assertIn("capas 2x2 MMSE=2, 4x2 MMSE=2, 4x4 MMSE=4", mimo["summary"])
         self.assertIn("BW: 10 MHz (600 SC)", mimo["summary"])
         self.assertEqual(mimo["rank_mode"], "max")
-        self.assertEqual(mimo["rank_label"], "Rank maximo")
-        self.assertAlmostEqual(mimo["throughput_by_mode"]["4x4 R4 IRC/MMSE"], 4.0)
+        self.assertEqual(mimo["rank_label"], "maximo de capas")
+        self.assertAlmostEqual(mimo["throughput_by_mode"]["4x4 MMSE"], 4.0)
+        self.assertNotIn("airtime_ms_by_mode", mimo)
         self.assertEqual(mimo["modulation"], "16-QAM")
         self.assertTrue(np.array_equal(mimo["x"], np.array([5, 10, 15, 20, 25, 30], dtype=float)))
         for item in mimo["series"]:
@@ -819,18 +860,19 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertEqual(
             [item["label"] for item in fair_mimo["series"]],
             [
-                "2x2 R2 IRC/MMSE",
-                "4x2 R2 IRC/MMSE",
-                "4x4 R2 IRC/MMSE",
-                "2x2 R2 SIC",
-                "4x2 R2 SIC",
-                "4x4 R2 SIC",
+                "2x2 MMSE",
+                "4x2 MMSE",
+                "4x4 MMSE",
+                "2x2 SIC",
+                "4x2 SIC",
+                "4x4 SIC",
             ],
         )
         self.assertEqual(fair_mimo["rank_mode"], "rank2")
-        self.assertEqual(fair_mimo["rank_label"], "Rank 2")
-        self.assertEqual(fair_mimo["blocks_by_mode"]["4x4 R2 IRC/MMSE"], 2)
-        self.assertAlmostEqual(fair_mimo["throughput_by_mode"]["4x4 R2 IRC/MMSE"], 2.0)
+        self.assertEqual(fair_mimo["rank_label"], "2 capas")
+        self.assertEqual(fair_mimo["blocks_by_mode"]["4x4 MMSE"], 2)
+        self.assertAlmostEqual(fair_mimo["throughput_by_mode"]["4x4 MMSE"], 2.0)
+        self.assertNotIn("airtime_ms_by_mode", fair_mimo)
 
         visual = manager.calculate_mimo_visual_comparison(
             "imagenes/cameraman.jpg",
@@ -843,16 +885,19 @@ class CoreSimulationTests(unittest.TestCase):
         self.assertEqual(
             [item["label"] for item in visual["scenarios"]],
             [
-                "2x2 R2 IRC/MMSE",
-                "4x2 R2 IRC/MMSE",
-                "4x4 R4 IRC/MMSE",
-                "2x2 R2 SIC",
-                "4x2 R2 SIC",
-                "4x4 R4 SIC",
+                "2x2 MMSE",
+                "4x2 MMSE",
+                "4x4 MMSE",
+                "2x2 SIC",
+                "4x2 SIC",
+                "4x4 SIC",
             ],
         )
         for item in visual["scenarios"]:
             self.assertTrue(item["success"])
+            self.assertNotIn("tx_time_ms", item)
+            self.assertNotIn("lte_time_ms", item)
+            self.assertNotIn("sim_runtime_ms", item)
             self.assertEqual(item["rx_image"].shape, (manager.img_size, manager.img_size))
 
 

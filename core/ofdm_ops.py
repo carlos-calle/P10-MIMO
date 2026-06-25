@@ -1,6 +1,10 @@
 import numpy as np
 
-from .utils import quantize_symbols_to_constellation
+from .mimo_ops import (
+    detect_mimo_symbols,
+    effective_mimo_channel,
+    mimo_precoder_matrix,
+)
 
 
 def active_subcarrier_indices(n_fft, nc):
@@ -31,41 +35,6 @@ def channel_frequency_response(h, n_fft, nc):
         h_freq = np.fft.fft(h, n=n_fft, axis=-1)
         return np.moveaxis(h_freq[:, :, active_indices], -1, 0)
     raise ValueError("La respuesta de canal debe ser SISO 1D o MIMO 3D")
-
-
-def mimo_precoder_matrix(n_tx, n_layers=None, precoder="identity"):
-    """Devuelve la matriz W que mapea capas espaciales a antenas TX fisicas."""
-    n_tx = int(n_tx)
-    n_layers = n_tx if n_layers is None else int(n_layers)
-    if n_tx <= 0 or n_layers <= 0:
-        raise ValueError("n_tx y n_layers deben ser positivos")
-    if n_layers > n_tx:
-        raise ValueError("No puede haber mas capas que antenas TX")
-
-    if isinstance(precoder, np.ndarray):
-        matrix = np.asarray(precoder, dtype=np.complex128)
-    else:
-        mode = "identity" if precoder is None else str(precoder).lower()
-        if mode == "identity":
-            if n_tx != n_layers:
-                raise ValueError("El precoder identidad requiere n_tx == n_layers")
-            matrix = np.eye(n_tx, dtype=np.complex128)
-        elif mode in ("tx_repeat", "repeat"):
-            if n_tx % n_layers != 0:
-                raise ValueError("tx_repeat requiere que n_tx sea multiplo de n_layers")
-            repeats = n_tx // n_layers
-            matrix = np.zeros((n_tx, n_layers), dtype=np.complex128)
-            for tx_idx in range(n_tx):
-                matrix[tx_idx, tx_idx % n_layers] = 1 / np.sqrt(repeats)
-        else:
-            raise ValueError("Precoder MIMO no soportado")
-
-    if matrix.shape != (n_tx, n_layers):
-        raise ValueError("La matriz de precoding debe tener forma n_tx x n_layers")
-    gram = matrix.conj().T @ matrix
-    if not np.allclose(gram, np.eye(n_layers), atol=1e-10):
-        raise ValueError("La matriz de precoding debe tener columnas ortonormales")
-    return matrix
 
 
 def _map_active_grid_to_time(active_grid, n_fft, nc):
@@ -250,101 +219,6 @@ def demodulate_ofdm_with_channel(
     return equalized_grid.reshape(-1), h_freq
 
 
-def _detect_linear_mmse(y, h_matrix, noise_to_signal=0.0, threshold=1e-10):
-    h_herm = np.swapaxes(h_matrix.conj(), -1, -2)
-    gram = h_herm @ h_matrix
-    n_layers = h_matrix.shape[2]
-    regularizer = max(0.0, float(noise_to_signal))
-    gram = gram + regularizer * np.eye(n_layers, dtype=np.complex128)[None, :, :]
-    rhs = h_herm @ y[:, :, None]
-    try:
-        return np.linalg.solve(gram, rhs)[:, :, 0]
-    except np.linalg.LinAlgError:
-        return (np.linalg.pinv(gram, rcond=threshold) @ rhs)[:, :, 0]
-
-
-def _detect_mmse_sic(y, h_matrix, mod_type, noise_to_signal=0.0, threshold=1e-10):
-    if mod_type is None:
-        raise ValueError("MMSE-SIC requiere el tipo de modulacion")
-
-    batch_size, _ = y.shape
-    n_layers = h_matrix.shape[2]
-    residual = y.copy()
-    active = np.ones((batch_size, n_layers), dtype=bool)
-    detected = np.zeros((batch_size, n_layers), dtype=np.complex128)
-
-    column_power = np.sum(np.abs(h_matrix) ** 2, axis=1)
-    detection_order = np.argsort(-column_power, axis=1)
-    batch_indices = np.arange(batch_size)
-
-    for step_idx in range(n_layers):
-        h_active = h_matrix * active[:, None, :]
-        estimates = _detect_linear_mmse(
-            residual,
-            h_active,
-            noise_to_signal=max(float(noise_to_signal), threshold),
-            threshold=threshold,
-        )
-        chosen_layers = detection_order[:, step_idx]
-        hard_symbols = quantize_symbols_to_constellation(
-            estimates[batch_indices, chosen_layers],
-            mod_type,
-        )
-
-        detected[batch_indices, chosen_layers] = hard_symbols
-        residual -= h_matrix[batch_indices, :, chosen_layers] * hard_symbols[:, None]
-        active[batch_indices, chosen_layers] = False
-
-    return detected
-
-
-def detect_mimo_symbols(
-    y,
-    h_matrix,
-    detector="MMSE",
-    noise_to_signal=0.0,
-    threshold=1e-10,
-    mod_type=None,
-):
-    """Detecta capas MIMO por ZF, IRC/MMSE o MMSE-SIC."""
-    y = np.asarray(y, dtype=np.complex128)
-    h_matrix = np.asarray(h_matrix, dtype=np.complex128)
-    detector = str(detector).upper()
-
-    squeeze = y.ndim == 1
-    if squeeze:
-        y = y[None, :]
-        h_matrix = h_matrix[None, :, :]
-
-    if h_matrix.ndim != 3 or y.ndim != 2:
-        raise ValueError("Las dimensiones de entrada MIMO no son validas")
-    if h_matrix.shape[0] != y.shape[0] or h_matrix.shape[1] != y.shape[1]:
-        raise ValueError("La matriz de canal y la senal recibida no coinciden")
-
-    if detector == "ZF":
-        weights = np.linalg.pinv(h_matrix, rcond=threshold)
-        detected = np.einsum("bij,bj->bi", weights, y)
-    elif detector in ("MMSE", "IRC/MMSE", "IRC"):
-        detected = _detect_linear_mmse(
-            y,
-            h_matrix,
-            noise_to_signal=noise_to_signal,
-            threshold=threshold,
-        )
-    elif detector in ("MMSE-SIC", "SIC"):
-        detected = _detect_mmse_sic(
-            y,
-            h_matrix,
-            mod_type=mod_type,
-            noise_to_signal=noise_to_signal,
-            threshold=threshold,
-        )
-    else:
-        raise ValueError("Detector MIMO no soportado")
-
-    return detected[0] if squeeze else detected
-
-
 def _detect_mimo_layers(
     active_rx_grid,
     h_eff,
@@ -353,6 +227,7 @@ def _detect_mimo_layers(
     threshold,
     mod_type,
 ):
+    """Aplica r[k] = H_eff[k] s[k] + n[k] en cada subportadora OFDM."""
     num_blocks = active_rx_grid.shape[1]
     nc = active_rx_grid.shape[2]
     if h_eff.ndim == 3:
@@ -406,7 +281,7 @@ def demodulate_mimo_ofdm_with_channel(
     n_layers = n_tx if n_layers is None else int(n_layers)
     precoder_matrix = mimo_precoder_matrix(n_tx, n_layers, precoder)
     h_phys = channel_frequency_response(h, n_fft, nc)
-    h_eff = np.einsum("krt,tl->krl", h_phys, precoder_matrix) * complex(channel_scale)
+    h_eff = effective_mimo_channel(h_phys, precoder_matrix, channel_scale)
     detected_layers = _detect_mimo_layers(
         active_rx_grid,
         h_eff,

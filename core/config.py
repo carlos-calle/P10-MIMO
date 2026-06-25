@@ -50,7 +50,7 @@ MIMO_MODES = {
 
 MIMO_DETECTORS = {
     1: "ZF",
-    2: "IRC/MMSE",
+    2: "MMSE",
     3: "MMSE-SIC",
 }
 
