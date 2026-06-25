@@ -18,6 +18,7 @@ Referencias/
 
 # Local study notes/docs
 *.md
+!README.md
 
 # LaTeX build artifacts
 *.aux
