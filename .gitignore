@@ -16,6 +16,9 @@ env/
 # Local reference material
 Referencias/
 
+# Local study notes/docs
+*.md
+
 # LaTeX build artifacts
 *.aux
 *.fdb_latexmk
