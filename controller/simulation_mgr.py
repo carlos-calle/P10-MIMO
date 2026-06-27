@@ -170,6 +170,18 @@ class OFDMSimulationManager:
         mode_cfg = self._mimo_config(mimo_mode)
         return float(mode_cfg["layers"])
 
+    def _gross_data_rate_bps(self, tx_plan, mod_type):
+        """Tasa OFDM ideal antes de codificacion y senalizacion de referencia."""
+        cp_pattern = np.asarray(tx_plan["cp_pattern"], dtype=float)
+        mean_symbol_samples = tx_plan["n_fft"] + float(np.mean(cp_pattern))
+        ofdm_symbols_per_second = tx_plan["sample_rate_hz"] / mean_symbol_samples
+        bits_per_ofdm_symbol = (
+            tx_plan["data_subcarriers_per_layer"]
+            * tx_plan["num_layers"]
+            * config.MODULATION_BITS[mod_type]
+        )
+        return float(bits_per_ofdm_symbol * ofdm_symbols_per_second)
+
     def _random_ber_bits(self, seed_offset=0):
         rng = np.random.default_rng(self.mc_seed + 50_000 + int(seed_offset))
         return rng.integers(0, 2, self.ber_random_bits, dtype=np.uint8)
@@ -249,6 +261,7 @@ class OFDMSimulationManager:
         tx_plan = {
             "tx_cp": tx_cp,
             "cp_used": cp_used,
+            "cp_pattern": tuple(cp_lengths),
             "n_fft": n_fft,
             "nc": nc,
             "sample_rate_hz": n_fft * df,
@@ -407,6 +420,7 @@ class OFDMSimulationManager:
             rx_img_matrix = utils.bits_to_image(rx_bits, img_size)
             mode_cfg = self._mimo_config(mimo_mode)
             detector_label = self._detector_name(detector) if mode_cfg["layers"] > 1 else "N/A"
+            gross_data_rate_bps = self._gross_data_rate_bps(tx_plan, mod_type)
 
             return {
                 "success": True,
@@ -427,6 +441,8 @@ class OFDMSimulationManager:
                 "num_layers": tx_plan["num_layers"],
                 "data_subcarriers_per_layer": tx_plan["data_subcarriers_per_layer"],
                 "throughput_factor": tx_plan["throughput_factor"],
+                "gross_data_rate_bps": gross_data_rate_bps,
+                "gross_data_rate_mbps": gross_data_rate_bps / 1e6,
                 "channel_condition_mean": channel_metrics["condition_mean"],
                 "channel_condition_median": channel_metrics["condition_median"],
                 "ideal_capacity_bpshz": channel_metrics["capacity_bpshz"],
@@ -436,6 +452,7 @@ class OFDMSimulationManager:
                     f"CSI perfecta | Cond media/med: {channel_metrics['condition_mean']:.2f}/"
                     f"{channel_metrics['condition_median']:.2f} | Cap: "
                     f"{channel_metrics['capacity_bpshz']:.2f} bps/Hz | "
+                    f"Tasa bruta: {gross_data_rate_bps / 1e6:.1f} Mbps | "
                     f"Bits: {valid_len} | Simbolos: {tx_plan['num_symbols']} | "
                     f"Bloques OFDM: {tx_plan['num_blocks']} | Datos/capa: "
                     f"{tx_plan['data_subcarriers_per_layer']} SC | SC activas: {nc}"

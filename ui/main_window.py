@@ -331,7 +331,9 @@ class MainWindow(ctk.CTk):
             ax.set_facecolor('#2b2b2b')
             ax.imshow(item["rx_image"], cmap="gray", vmin=0, vmax=255)
             ax.set_title(
-                f"{item['label']}\nBER: {item['ber']:.2e}",
+                f"{item['label']}\n"
+                f"BER: {item['ber']:.2e} | "
+                f"Tasa bruta: {item['gross_data_rate_mbps']:.1f} Mbps",
                 color="white",
                 fontsize=9,
             )
